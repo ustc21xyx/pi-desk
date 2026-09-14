@@ -1,0 +1,9 @@
+node_modules/
+out/
+release/
+build/*.png
+build/*.icns
+build/*.iconset/
+.DS_Store
+*.log
+.env*

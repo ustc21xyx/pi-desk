@@ -1,0 +1,133 @@
+# Pi Desk 0.2.9 构建记录
+
+- 后续加入 Git 更新脚本，完成 Node.js 与 shell 语法检查；未实际执行更新流程或功能验收。该入口位于源码仓库，无需重新打包已安装的 0.2.9。
+
+- 项目名称只切换列表展开/收起，不改变当前会话或触发项目连接；独立的新建图标打开该项目输入框，保留草稿并展开项目列表。
+- 项目和置顶列表统一显示“显示更多”，每次增加 5 条，移除数量说明。
+- 已通过 TypeScript 类型检查、Electron/Vite 生产构建、应用签名、DMG 完整性校验；逐文件核对编译输出和辅助资源与打包内容一致，核对版本及包内文件范围。
+- 未进行浏览器交互、手工功能或验收测试，未启动 Pi 或发送模型请求。
+- 产物：`release/Pi-Desk-0.2.9-arm64.dmg`。SHA-256：`021ccd3554e0ef4f71f1089d2e2067bc97022af097413e37da09f36a54f04385`。
+- 用户要求安装后，确认旧版进程已退出；已安装并打开 `/Applications/Pi Desk.app`，版本核对为 0.2.9，旧版备份至 `release/installed-backup/Pi Desk-0.2.6.app`。替换前验证源应用及暂存副本签名。新版包含 0.2.7、0.2.8 的改动。
+
+# Pi Desk 0.2.8 构建记录
+
+- 最近一条已保存用户消息提供“编辑并重发”；由 Pi Desk 专用扩展调用 Pi 原生会话树导航，核对回退位置后再明确发送修改后的消息。文件不随对话回退。
+- 所有已保存用户消息提供“从这里分支”；调用本机 Pi 的 fork，保留原会话，把编辑后的文字和原图片放回输入框，等待用户发送。
+- 编辑弹窗支持 Pi 扩展问题；扩展取消、目标消息失效、排队或任务执行中均不自动继续发送。已经回退但发送失败时保留编辑内容，并明确说明当前状态。
+- 右侧差异分为未暂存与已暂存。未暂存支持按文件、代码块或整组撤销；已暂存支持按相同范围取消暂存，文件内容保留。
+- 撤销采用主进程持有的短期差异预览，IPC 只接收目标 ID；确认后重新核对整个差异，先检查 Git 反向补丁，再应用。不使用强制或部分应用，不接收渲染进程提供的任意补丁。
+- 未跟踪文件不纳入撤销；链接和子模块仅预览；新增、删除、二进制与模式变更按整文件处理，不提供代码块操作。差异超过 2 MB 提示在 Git 中处理。
+- 沿用 0.2.7 的项目提前准备连接。没有改动全局 Pi 包、认证或现有会话文件，没有为验收启动 Pi 或发送模型请求。
+- 已通过 TypeScript 类型检查、Electron/Vite 生产构建、专用扩展语法检查、应用签名与 DMG 完整性检查；已逐文件核对打包的编译输出与辅助资源，未包含本机认证、配置或会话。
+- 产物：`release/Pi-Desk-0.2.8-arm64.dmg`。SHA-256：`b711c77fa56b0fd575fb5510f5c62f781c659dca3a641b7224e1eaac420a66a4`。
+- 安装未完成：已请求旧版正常退出，但仍保留一个 Pi 子进程，未强制结束或覆盖运行中的应用。已安装版本仍为 0.2.6。功能验收由用户完成。
+
+# Pi Desk 0.2.7 构建记录
+
+- 项目选择后提前准备 Pi，保留项目配置授权，首次发送激活并复用准备连接；最多保留一个未使用的项目准备连接。
+- 输入区展示准备状态；准备连接不列为对话，历史预览不预热，新会话不得复用已激活对话。
+- 已通过 TypeScript 类型检查、Electron/Vite 生产构建、应用签名与 DMG 完整性校验。
+- 产物：`release/Pi-Desk-0.2.7-arm64.dmg`，Apple Silicon，macOS 13+，ad-hoc 签名。
+- 已核对辅助资源与源码一致，应用包未包含本机配置、认证、会话、模型缓存或生成标题。
+- 安装暂未完成：正常退出旧版后进程仍存在，预检中止了替换；`/Applications/Pi Desk.app` 仍为 0.2.6，没有强制结束 Pi 连接。
+- 未启动 Pi/RPC 或模型请求，未进行浏览器交互、手工功能、性能或验收测试。初始化自身仍取决于本机扩展和网络，没有实测延迟数字。
+
+SHA-256：`7a17331017257490cab4a7beb0613ec571610234722d208ae385825c521829a3`
+
+# Pi Desk 0.2.6 构建记录
+
+- 模型列表以完整 ID 统一展示和排序，避免友好名称导致刷新后位置变化；搜索忽略分隔符并支持多个关键词。
+- 只读核对本地 Pi Desk 模型缓存：包含 `cpa/antigravity/gemini-3.7-flash-high`，其友好名称以 Gemini 开头，之前排在 G。
+- 已通过 TypeScript 类型检查、Electron/Vite 生产构建、应用签名与 DMG 完整性校验。
+- 已安装到 `/Applications/Pi Desk.app`，版本核对为 0.2.6；旧版留在 `release/installed-backup/Pi Desk-0.2.5.app`。
+- 产物：`release/Pi-Desk-0.2.6-arm64.dmg`，Apple Silicon，macOS 13+，ad-hoc 签名。
+- 已核对辅助资源与源码一致，应用包未包含本机配置、认证、会话、模型缓存或生成标题。
+- 未启动 Pi/RPC 或模型请求，未进行浏览器交互、手工功能或验收测试；仅为安装更新而正常退出并重新打开应用。缓存存在不代表已验证上游生成可用性。
+
+SHA-256：`a98b6add1b904666edb97c0454cc38fd84c381591ce06d919bc8df0c7f88baf7`
+
+# Pi Desk 0.2.5 构建记录
+
+- 新会话模型选择先显示缓存/近期使用记录，Pi 初始化在后台执行；明确的模型选择在项目连接后、发送前校验应用。
+- 模型缓存只保存展示字段，不保存凭据，保存在 Pi Desk 私有数据目录。冷启动历史回退只读最近 64 个已索引会话各 16 KiB 头尾片段，不推断能力。
+- 已通过 TypeScript 类型检查、Electron/Vite 生产构建、应用签名与 DMG 完整性校验。
+- 已安装到 `/Applications/Pi Desk.app`，版本核对为 0.2.5；旧版留在 `release/installed-backup/Pi Desk-0.2.4.app`。
+- 产物：`release/Pi-Desk-0.2.5-arm64.dmg`，Apple Silicon，macOS 13+，ad-hoc 签名。
+- 已核对辅助资源与源码一致，应用包未包含本机配置、认证、会话、模型缓存或生成标题。
+- 未启动 Pi/RPC 或模型请求，未进行浏览器交互、手工功能、性能或验收测试；仅为安装更新而正常退出并重新打开应用。没有实测延迟数字；完整 Pi 初始化速度仍取决于本机扩展和网络。
+
+SHA-256：`e87215b70220e91af7dc5748e2bba3fe55bd2677d04d28259b2d2c2d63c60fd2`
+
+# Pi Desk 0.2.4 构建记录
+
+- 将未选项目时的模型与思考设置拆为全局配置连接；明确选择的设置在创建项目会话后、发送前应用。
+- 设置连接使用本机 Pi 的 `--no-session --no-tools --no-approve`，使用临时目录，不保存会话或加入项目列表。
+- 已通过 TypeScript 类型检查、Electron/Vite 生产构建、应用签名与 DMG 完整性校验。
+- 已安装到 `/Applications/Pi Desk.app`，版本核对为 0.2.4；旧版留在 `release/installed-backup/Pi Desk-0.2.3.app`。
+- 产物：`release/Pi-Desk-0.2.4-arm64.dmg`，Apple Silicon，macOS 13+，ad-hoc 签名。
+- 已核对辅助资源与源码一致，应用包未包含本机配置、认证、会话或生成标题。
+- 未启动 Pi/RPC 或模型请求，未进行浏览器交互、手工功能或验收测试；仅为安装更新而正常退出并重新打开应用。
+
+SHA-256：`740f1b6c21a1a6a5e9e81209e8b5127b36ac06a08a2ae599b885feecd1a31548`
+
+# Pi Desk 0.2.3 构建记录
+
+- 模型按名称 A–Z 排序；思考设置保留 Pi 的能力映射、自动发现详情入口，并在打开/修改设置时读取新的快照。
+- 已通过 TypeScript 类型检查、Electron/Vite 生产构建、应用签名与 DMG 完整性校验。
+- 已安装到 `/Applications/Pi Desk.app`，版本核对为 0.2.3；旧版留在 `release/installed-backup/Pi Desk-0.2.2.app`。
+- 产物：`release/Pi-Desk-0.2.3-arm64.dmg`，Apple Silicon，macOS 13+，ad-hoc 签名。
+- 已核对辅助资源与源码一致，应用包未包含本机配置、认证、会话或生成标题。
+- 未启动 Pi/RPC 或模型请求，未进行浏览器交互、手工功能或验收测试；仅为安装更新而正常退出并重新打开应用。
+
+SHA-256：`7111979f8bf31e922d41e757cbb74febbc84649dbe479580f9774c15a8f52b10`
+
+# Pi Desk 0.2.2 构建记录
+
+- 中文粗体优化采用解析阶段的 CJK 强调规则：`remark-cjk-friendly/parseOnly` 与配套 GFM 删除线扩展，均固定为 2.3.1。
+- 已通过 TypeScript 类型检查、Electron/Vite 生产构建、应用签名与 DMG 完整性校验。
+- 已安装到 `/Applications/Pi Desk.app`，版本核对为 0.2.2；旧版留在 `release/installed-backup/Pi Desk-0.2.1.app`。
+- 产物：`release/Pi-Desk-0.2.2-arm64.dmg`，Apple Silicon，macOS 13+，ad-hoc 签名。
+- 已核对辅助资源与源码一致，应用包未包含本机配置、认证、会话或生成标题。
+- 本轮没有运行用户脚本，没有启动 Pi/RPC 或模型请求，也没有执行浏览器交互、手工功能或验收测试；仅为安装更新而正常退出并重新打开应用。
+
+SHA-256：`15008e9e56eceecfd73280dca2e6b010f854dbc3d9f57558f7c054825f1113e5`
+
+# Pi Desk 0.2.1 构建记录
+
+- 修复发送前模型/思考设置入口，补充网关上游默认模式切换；上下文用量改为可展开详情的圆环。
+- 已通过 TypeScript 类型检查、Electron/Vite 生产构建、应用签名与 DMG 完整性校验。
+- 已安装到 `/Applications/Pi Desk.app`，核对版本为 0.2.1；前一版留在 `release/installed-backup/Pi Desk-0.2.0.app`。
+- 产物：`release/Pi-Desk-0.2.1-arm64.dmg`，Apple Silicon，macOS 13+，ad-hoc 签名。
+- 已核对辅助资源与源码一致，应用包未包含本机配置、认证、会话或生成标题。
+- 未启动 Pi/RPC、未发起模型生成请求，也未进行浏览器交互、手工功能或验收测试。仅为更新安装而正常退出并重新打开应用。
+- 本轮未修改本机 Pi 配置与历史标题。
+
+SHA-256：`b5dcb8e86636b1c3f6502d660bd0087c642d916e04582691f9940796146a3cac`
+
+# Pi Desk 0.2.0 构建记录
+
+构建日期：2026-09-14。
+
+- 安装包：`release/Pi-Desk-0.2.0-arm64.dmg`
+- 已安装：`/Applications/Pi Desk.app`
+- 应用构建产物：`release/mac-arm64/Pi Desk.app`
+- 前一版应用备份：`release/installed-backup/Pi Desk-0.1.0.app`
+- 平台：Apple Silicon（arm64），macOS 13.0 或更新。
+- Electron：44.3.0；签名为 ad-hoc，未做 Developer ID 签名或 Apple 公证。
+- 需要目标 Mac 自行安装并配置 Pi，识别 npm 安装的 Pi 0.85.1+。
+
+已完成 TypeScript 类型检查、Electron/Vite 生产构建、两个辅助模块的 JavaScript 语法检查、macOS 应用与 DMG 打包。
+
+应用通过 `codesign --verify --deep --strict`，DMG 通过 `hdiutil verify`。安装前校验暂存应用，随后正常退出旧版并替换；安装目录版本号确认是 0.2.0。已核对打包的辅助资源与源码一致，ASAR 中未包含 Pi 认证、配置、会话或本机生成的标题。
+
+本轮没有进行浏览器交互、手工功能、验收或性能测试，也没有启动 Pi/RPC 做测试。历史会话命名是用户明确要求的实际操作：使用本机 CPA 的 `ollama/deepseek-v4.1-flash`，逐项将标题保存至 Pi Desk 的私有元数据，保留已有名称与原始会话 JSONL。
+
+安装包 SHA-256：
+
+```text
+4dc0634351176c9422ea337bb4dfd7298489cabd5ff649dce8c52e576c71430e
+```
+
+更改列表见 [CHANGELOG](./CHANGELOG.md)，使用方式与边界见 [README](./README.md)。源码位于独立本地 Git 仓库，尚未提交或推送。
+
+历史命名结果：共 198 个会话，为 182 个会话生成标题，保留 15 个已有名称，跳过 1 个空会话；此前 2 个未返回完整标题的请求已补齐，最终无失败项。本机自动命名已开启，provider 为 `cpa`，模型为 `ollama/deepseek-v4.1-flash`。私有结果摘要保存在 Pi Desk 数据目录的 `naming-summary.json`，未写入仓库。

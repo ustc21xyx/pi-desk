@@ -1,0 +1,75 @@
+{
+  "name": "pi-desk",
+  "version": "0.2.9",
+  "private": true,
+  "description": "A desktop workspace for your local Pi coding agent",
+  "author": "Pi Desk",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && electron-vite build",
+    "icons": "node scripts/icons.mjs",
+    "pack:mac": "npm run build && npm run icons && electron-builder --mac dir --publish never",
+    "dist:mac": "npm run build && npm run icons && electron-builder --mac dmg --publish never",
+    "dist:mac:intel": "npm run build && npm run icons && electron-builder --mac dmg --x64 --publish never",
+    "update": "node scripts/update.mjs"
+  },
+  "dependencies": {
+    "lucide-react": "1.46.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-markdown": "10.1.0",
+    "remark-cjk-friendly": "2.3.1",
+    "remark-cjk-friendly-gfm-strikethrough": "2.3.1",
+    "remark-gfm": "4.0.1"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "5.2.0",
+    "electron": "44.3.0",
+    "electron-builder": "26.15.3",
+    "electron-vite": "5.0.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.6"
+  },
+  "build": {
+    "appId": "local.pidesk.desktop",
+    "productName": "Pi Desk",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/desk-bridge.mjs",
+        "to": "desk-bridge.mjs"
+      },
+      {
+        "from": "resources/naming-provider.mjs",
+        "to": "naming-provider.mjs"
+      }
+    ],
+    "asar": true,
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "target": [
+        "dmg"
+      ]
+    },
+    "dmg": {
+      "title": "Pi Desk",
+      "artifactName": "Pi-Desk-${version}-${arch}.dmg"
+    }
+  }
+}
