@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+local_scanner=$(git rev-parse --git-path tools/gitleaks)
+if command -v gitleaks >/dev/null 2>&1; then
+  scanner=gitleaks
+elif [ -x "$local_scanner" ]; then
+  scanner="$local_scanner"
+else
+  printf '%s\n' '推送已停止：请先安装 Gitleaks，再推送代码。' >&2
+  exit 1
+fi
+exec "$scanner" git --redact --no-banner --log-opts=--all .

@@ -14,3 +14,4 @@ Desktop client for the user's existing local Pi installation. Read `../docs/pi-g
 Commands: `npm run dev`, `npm run build`, `npm run pack:mac`, `npm run dist:mac`.
 
 - Source control: maintain changes in this repository, commit completed work, and push to `origin/main` when the user requests publishing. Do not force-push. The user can install pushed changes with `npm run update` or `更新 Pi Desk.command`.
+- This repository is public. Never commit credentials, real provider configuration, local Pi data, session excerpts, or sensitive logs. Enable `.githooks` with `git config core.hooksPath .githooks` before pushing; Gitleaks must pass for all Git history. Never bypass the hook. A clean scanner result does not replace reviewing the files being published.

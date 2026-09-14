@@ -7,3 +7,19 @@ build/*.iconset/
 .DS_Store
 *.log
 .env*
+# Local Pi data and credentials must never be published.
+.pi/
+auth.json
+models.json
+gateway-models.json
+preferences.json
+session-titles.json
+sessions/
+*.jsonl
+*.pem
+*.key
+*.p12
+*.pfx
+.npmrc
+.netrc
+credentials.json

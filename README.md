@@ -58,7 +58,7 @@ npm install -g @earendil-works/pi-coding-agent
 
 ## 从 Git 更新
 
-仓库：<https://github.com/ustc21xyx/pi-desk>（私有，需有访问权限）。
+仓库：<https://github.com/ustc21xyx/pi-desk>。
 
 先从 Pi Desk 菜单退出应用，再双击仓库中的 **更新 Pi Desk.command**。也可以在仓库目录运行：
 
@@ -66,12 +66,12 @@ npm install -g @earendil-works/pi-coding-agent
 npm run update
 ```
 
-脚本通过 `git pull --ff-only` 拉取当前分支的更新，安装锁定依赖、构建本机架构的应用，验证签名后安装到 `/Applications/Pi Desk.app` 并打开。旧版备份在 `release/installed-backup/`；Pi 的配置、认证和会话不变。存在未提交改动、分支分叉或应用尚未退出时会停止，不强制合并或结束任务。需要本机 Git、Node.js、npm，以及仓库访问权限。
+脚本通过 `git pull --ff-only` 拉取当前分支的更新，安装锁定依赖、构建本机架构的应用，验证签名后安装到 `/Applications/Pi Desk.app` 并打开。旧版备份在 `release/installed-backup/`；Pi 的配置、认证和会话不变。存在未提交改动、分支分叉或应用尚未退出时会停止，不强制合并或结束任务。需要本机 Git、Node.js 和 npm。
 
 另一台 Mac 首次使用：
 
 ```sh
-gh repo clone ustc21xyx/pi-desk
+git clone https://github.com/ustc21xyx/pi-desk.git
 cd pi-desk
 npm run update
 ```
@@ -79,6 +79,8 @@ npm run update
 Mac 上仍需单独安装并配置 Pi。Git 更新不会同步各台 Mac 的 Pi 配置或会话。
 
 ## 开发与构建
+
+开发者推送前需安装 [Gitleaks](https://github.com/gitleaks/gitleaks)，并在克隆仓库后运行 `git config core.hooksPath .githooks`，启用完整 Git 历史的凭据扫描；缺少扫描器或发现疑似凭据时会阻止推送。普通拉取更新无需安装扫描器。不要将本机 Pi 配置、认证、会话或包含敏感内容的日志添加到仓库；扫描只是一层检查，提交前仍需审查文件内容。
 
 ```sh
 npm install
