@@ -124,7 +124,7 @@ export class AppUpdates {
       const plist = join(stage, 'Contents/Info.plist')
       const read = async (key: string) => (await exec('/usr/libexec/PlistBuddy', ['-c', `Print :${key}`, plist])).stdout.trim()
       if (await read('CFBundleIdentifier') !== 'local.pidesk.desktop' || await read('CFBundleShortVersionString') !== this.state.version || await read('CFBundleExecutable') !== 'Pi Desk') throw new Error('安装包的应用身份或版本不匹配。')
-      await exec('/usr/bin/lipo', ['-verify_arch', process.arch === 'x64' ? 'x86_64' : 'arm64', join(stage, 'Contents/MacOS/Pi Desk')])
+      await exec('/usr/bin/lipo', [join(stage, 'Contents/MacOS/Pi Desk'), '-verify_arch', process.arch === 'x64' ? 'x86_64' : 'arm64'])
       const helper = join(this.workspace, 'install.sh')
       await fs.rm(join(this.workspace, 'helper-ready'), { force: true })
       await fs.copyFile(join(process.resourcesPath, 'update-install.sh'), helper)

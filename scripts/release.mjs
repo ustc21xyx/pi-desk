@@ -33,7 +33,7 @@ try {
   for (const arch of ['arm64', 'x64']) {
     const bundle = join('release', arch === 'arm64' ? 'mac-arm64' : 'mac', 'Pi Desk.app')
     run('/usr/bin/codesign', ['--verify', '--deep', '--strict', bundle])
-    run('/usr/bin/lipo', ['-verify_arch', arch === 'arm64' ? 'arm64' : 'x86_64', join(bundle, 'Contents/MacOS/Pi Desk')])
+    run('/usr/bin/lipo', [join(bundle, 'Contents/MacOS/Pi Desk'), '-verify_arch', arch === 'arm64' ? 'arm64' : 'x86_64'])
     const resources = join(bundle, 'Contents/Resources'), archive = join(resources, 'app.asar')
     if (asar.listPackage(archive).some(p => !/^\/(out|node_modules)(\/|$)/.test(p) && p !== '/package.json')) throw new Error('Unexpected packaged files.')
     function verify(directory) {
