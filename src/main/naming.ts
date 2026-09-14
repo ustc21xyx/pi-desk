@@ -5,6 +5,7 @@ import type { Storage } from './storage'
 import type { NamingStatus } from '../shared/contracts'
 
 export class NamingService {
+  get busy() { return this.status.running || this.pending.size > 0 }
   status: NamingStatus = { running: false, total: 0, completed: 0, failed: 0, skipped: 0 }
   private controller?: AbortController
   private lifetime = new AbortController()

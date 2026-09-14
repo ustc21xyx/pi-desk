@@ -8,6 +8,7 @@ import { activeBranch, clipped, compareModels, displayMessage, modelInfo } from 
 
 type Pending = { resolve: (data: JsonObject) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }
 export class PiRuntime {
+  get busy() { return this.revising || this.snapshot.dialogs.length > 0 || this.snapshot.queue.steering.length > 0 || this.snapshot.queue.followUp.length > 0 || !['idle', 'closed', 'error'].includes(this.snapshot.phase) }
   preparationTrust?: boolean
   snapshot: RuntimeSnapshot
   private child?: ChildProcessWithoutNullStreams

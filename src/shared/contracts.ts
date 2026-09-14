@@ -41,7 +41,12 @@ export interface RuntimeSnapshot {
 }
 export interface NamingStatus { running: boolean; total: number; completed: number; failed: number; skipped: number; error?: string }
 export interface ModelCatalog { models: ModelInfo[]; source: 'cache' | 'recent'; updatedAt?: number }
-export interface Bootstrap { namingStatus: NamingStatus; preferences: Preferences; installations: Installation[]; sessions: SessionInfo[]; runtimes: RuntimeSnapshot[]; warnings: string[] }
+export interface UpdateState {
+  currentVersion: string; version?: string; notes?: string; progress?: number; error?: string;
+  phase: 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'ready' | 'installing' | 'error';
+  supported: boolean;
+}
+export interface Bootstrap { version: string; namingStatus: NamingStatus; preferences: Preferences; installations: Installation[]; sessions: SessionInfo[]; runtimes: RuntimeSnapshot[]; warnings: string[] }
 export type RuntimeAction =
   | { type: 'prompt'; message: string; behavior?: 'steer' | 'followUp'; images?: { type: 'image'; data: string; mimeType: string }[] }
   | { type: 'stop' | 'refresh' | 'compact' | 'close' | 'activate' }
@@ -55,6 +60,11 @@ export interface RevisionDraft { text: string; images: { type: 'image'; data: st
 export interface ReviewFile { id: string; path: string; patch: string; reversible: boolean; hunks: { id: string; header: string; patch: string }[] }
 export interface ReviewSnapshot { id: string; sections: { staged: boolean; files: ReviewFile[] }[] }
 export interface DeskAPI {
+  updateState(): Promise<UpdateState>
+  checkUpdate(): Promise<UpdateState>
+  downloadUpdate(): Promise<UpdateState>
+  installUpdate(): Promise<void>
+  onUpdate(listener: (state: UpdateState) => void): () => void
   revisionDraft(id: string, entryId: string): Promise<RevisionDraft>
   revise(id: string, entryId: string, mode: 'edit' | 'fork', input?: { message: string; images?: RevisionDraft['images'] }): Promise<{ snapshot: RuntimeSnapshot; applied: boolean; error?: string }>
   review(cwd: string): Promise<ReviewSnapshot>

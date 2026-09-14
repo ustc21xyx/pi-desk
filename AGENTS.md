@@ -15,3 +15,5 @@ Commands: `npm run dev`, `npm run build`, `npm run pack:mac`, `npm run dist:mac`
 
 - Source control: maintain changes in this repository, commit completed work, and push to `origin/main` when the user requests publishing. Do not force-push. The user can install pushed changes with `npm run update` or `更新 Pi Desk.command`.
 - This repository is public. Never commit credentials, real provider configuration, local Pi data, session excerpts, or sensitive logs. Enable `.githooks` with `git config core.hooksPath .githooks` before pushing; Gitleaks must pass for all Git history. Never bypass the hook. A clean scanner result does not replace reviewing the files being published.
+
+- Desktop releases: bump package and lock versions, update CHANGELOG, commit/push main, then run `npm run release:mac` when publication is authorized. It builds both Mac architectures and validates GitHub asset digests before making the release public. Do not overwrite a published tag. Normal users update in Settings; Git update remains a developer fallback.

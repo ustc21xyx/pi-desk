@@ -9,6 +9,7 @@ import { discover } from './discovery'
 import { PiRuntime } from './runtime'
 import { NamingService } from './naming'
 import { readReview, revertReview } from './review'
+import { AppUpdates } from './updates'
 import type { Preferences, RuntimeAction } from '../shared/contracts'
 
 const exec = promisify(execFile)
@@ -17,6 +18,9 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'desk', privileges: { standard: 
 let win: BrowserWindow | null = null
 let store: Storage
 let naming: NamingService
+let updates: AppUpdates
+let installingUpdate = false
+let activeRequests = 0
 const autoNamed = new Set<string>()
 const runtimes = new Map<string, PiRuntime>()
 let preparingSettings: Promise<string> | undefined
@@ -37,9 +41,11 @@ function isAppURL(url: string) {
   } catch { return false }
 }
 function handle(name: string, fn: (...args: any[]) => unknown) {
-  ipcMain.handle(`desk:${name}`, (event: IpcMainInvokeEvent, ...args) => {
+  ipcMain.handle(`desk:${name}`, async (event: IpcMainInvokeEvent, ...args) => {
     if (!win || event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame || !isAppURL(event.senderFrame.url)) throw new Error('请求来源无效。')
-    return fn(...args)
+    if (installingUpdate && name !== 'updateState') throw new Error('正在准备重启安装，请稍候。')
+    activeRequests++
+    try { return await fn(...args) } finally { activeRequests-- }
   })
 }
 async function inProject(cwd: unknown, subpath: unknown) {
@@ -118,6 +124,31 @@ async function startProject(input: unknown) {
   return runtime.snapshot.id
 }
 function registerIPC() {
+  handle('updateState', () => updates.state)
+  handle('checkUpdate', () => updates.check())
+  handle('downloadUpdate', () => updates.fetchUpdate())
+  handle('installUpdate', async () => {
+    if (updates.state.phase !== 'ready') throw new Error('请先下载更新。')
+    const busy = () => activeRequests > 1 || naming.busy || [...runtimes.values()].some(r => r.busy)
+    if (busy()) throw new Error('还有任务或配置加载正在进行，请等它们完成后再点击重启安装。')
+    installingUpdate = true
+    let prepared: Awaited<ReturnType<AppUpdates['stage']>> | undefined
+    try {
+      prepared = await updates.stage()
+      await Promise.allSettled([preparingProject, preparingSettings])
+      if (busy()) throw new Error('还有任务正在进行，暂时不能重启安装。')
+      // Stop accepting work before closing idle connections; never interrupt an active task.
+      await Promise.all([...runtimes.values()].map(r => r.close()))
+      await updates.handoff(prepared)
+      naming.close()
+      quitting = true
+      app.quit()
+    } catch (error) {
+      installingUpdate = false
+      await updates.cancelInstall(prepared)
+      throw error
+    }
+  })
   handle('revisionDraft', (id, entryId) => {
     const runtime = runtimes.get(text(id, 100)); if (!runtime) throw new Error('连接不存在。')
     return runtime.revisionDraft(text(entryId, 100))
@@ -158,7 +189,7 @@ function registerIPC() {
     })().finally(() => { preparingSettings = undefined })
     return preparingSettings
   })
-  handle('bootstrap', async () => ({ preferences: store.preferences, namingStatus: naming.status, installations: await discover(store.preferences), ...await store.index(), runtimes: [...runtimes.values()].map(r => r.snapshot) }))
+  handle('bootstrap', async () => ({ version: app.getVersion(), preferences: store.preferences, namingStatus: naming.status, installations: await discover(store.preferences), ...await store.index(), runtimes: [...runtimes.values()].map(r => r.snapshot) }))
   handle('selectPath', async kind => {
     if (!['project', 'executable', 'node', 'agentDir', 'sessionDir', 'session'].includes(kind)) throw new Error('无效路径类型。')
     const directory = ['project', 'agentDir', 'sessionDir'].includes(kind)
@@ -263,6 +294,7 @@ else {
   app.on('second-instance', () => { if (!win) createWindow(); win?.show(); win?.focus() })
   void app.whenReady().then(async () => {
     store = new Storage(app.getPath('userData')); await store.init()
+    updates = new AppUpdates(state => send('desk:update', state))
     naming = new NamingService(store, app.isPackaged ? join(process.resourcesPath, 'naming-provider.mjs') : join(app.getAppPath(), 'resources/naming-provider.mjs'), status => send('desk:naming', status), (path, title) => {
       for (const r of runtimes.values()) if (r.snapshot.sessionPath === path) { r.snapshot.title = title; r.emit() }
       send('desk:naming', naming.status)
@@ -287,6 +319,7 @@ else {
   app.on('before-quit', event => {
     if (quitting) return
     event.preventDefault()
+    if (installingUpdate) return
     void (async () => {
       if (live().some(r => !r.snapshot.settingsOnly && !r.snapshot.prepared && r.snapshot.phase !== 'idle')) {
         const response = await dialog.showMessageBox({ type: 'question', title: '退出 Pi Desk？', message: '还有 Pi 任务正在运行', detail: '退出会结束 Pi Desk 启动的任务。已保存的会话仍保留在本机 Pi 中。', buttons: ['继续工作', '结束任务并退出'], defaultId: 0, cancelId: 0 })
