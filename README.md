@@ -58,6 +58,8 @@ npm install -g @earendil-works/pi-coding-agent
 
 ## 应用内更新
 
+首次安装请下载 [最新 macOS 安装包](https://github.com/ustc21xyx/pi-desk/releases/latest)。
+
 安装 0.2.11 或更新版本后，在 **设置 → 应用更新** 点击“检查更新”，下载完成后点击“重启并安装”。无需 Git、Node.js 或 GitHub 登录。仍在执行的任务、消息编辑、命名任务或配置加载会阻止重启；完成后再次点击即可。打开设置只读取本机版本，不自动联网或下载。
 
 更新只读取固定公开仓库的 GitHub Releases，按 Mac 架构选择稳定版本，核对 GitHub 提供的 SHA-256、文件大小、应用身份、架构与代码签名后安装。当前使用 ad-hoc 签名，更新来源的信任依赖固定 GitHub 仓库及 HTTPS，不提供 Developer ID 身份认证或公证。不要把校验和当作独立的发布者签名。
