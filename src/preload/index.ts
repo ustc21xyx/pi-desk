@@ -18,7 +18,7 @@ const api: DeskAPI = {
   onNaming: listener => { const fn = (_event: unknown, status: any) => listener(status); ipcRenderer.on('desk:naming', fn); return () => ipcRenderer.removeListener('desk:naming', fn) },
   bootstrap: () => invoke('bootstrap'), selectPath: kind => invoke('selectPath', kind),
   savePreferences: patch => invoke('savePreferences', patch), projectTrust: cwd => invoke('projectTrust', cwd),
-  history: (path, before) => invoke('history', path, before), prepareSettings: () => invoke('prepareSettings'), modelCatalog: () => invoke('modelCatalog'), start: options => invoke('start', options),
+  history: (path, before) => invoke('history', path, before), prepareSettings: () => invoke('prepareSettings'), modelCatalog: (cwd, trusted) => invoke('modelCatalog', cwd, trusted), start: options => invoke('start', options),
   action: (id, action) => invoke('action', id, action), pickImages: () => invoke('pickImages'),
   files: (cwd, path) => invoke('files', cwd, path), readFile: (cwd, path) => invoke('readFile', cwd, path),
   diff: cwd => invoke('diff', cwd), copyText: text => invoke('copyText', text), openExternal: url => invoke('openExternal', url),

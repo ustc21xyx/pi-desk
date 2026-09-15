@@ -47,8 +47,9 @@ export interface RuntimeSnapshot {
   stats?: { tokens: number; contextPercent?: number; contextTokens?: number; contextWindow?: number; cost?: number }; error?: string;
 }
 export interface NamingStatus { running: boolean; total: number; completed: number; failed: number; skipped: number; error?: string }
-export interface ModelCatalog { models: ModelInfo[]; source: 'cache' | 'recent'; updatedAt?: number }
-export type DefaultModel = Pick<ModelInfo, 'provider' | 'id' | 'name'>
+export interface CachedModelSettings { provider: string; id: string; thinking: string; levels: string[]; mode: 'level' | 'default' | 'budget'; defaultAvailable: boolean; updatedAt: number }
+export interface ModelCatalog { settings?: CachedModelSettings[]; models: ModelInfo[]; source: 'cache' | 'recent'; updatedAt?: number }
+export type DefaultModel = Pick<ModelInfo, 'provider' | 'id' | 'name'> & { thinking?: string }
 export interface UpdateState {
   transferStage?: 'connecting' | 'receiving' | 'verifying'; receivedBytes?: number; totalBytes?: number; bytesPerSecond?: number;
   currentVersion: string; version?: string; notes?: string; progress?: number; error?: string;
@@ -96,7 +97,7 @@ export interface DeskAPI {
   projectTrust(cwd: string): Promise<ProjectTrust>
   history(path: string, before?: string): Promise<HistoryPage>
   prepareSettings(): Promise<string>
-  modelCatalog(): Promise<ModelCatalog>
+  modelCatalog(cwd?: string, trusted?: boolean): Promise<ModelCatalog>
   start(options: { cwd: string; sessionPath?: string; trust?: boolean; prepared?: boolean }): Promise<string>
   action(id: string, action: RuntimeAction): Promise<void>
   pickImages(): Promise<{ type: 'image'; name: string; data: string; mimeType: string }[]>

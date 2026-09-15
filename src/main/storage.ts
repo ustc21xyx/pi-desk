@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
-import type { DefaultModel, ModelCatalog, ModelInfo, Preferences, SessionInfo, ProjectTrust } from '../shared/contracts'
+import type { CachedModelSettings, RuntimeSnapshot, DefaultModel, ModelCatalog, ModelInfo, Preferences, SessionInfo, ProjectTrust } from '../shared/contracts'
 import { displayMessage, activeBranch, compareModels, modelInfo } from './transcript'
 
 export const expand = (p: string) => p.startsWith('~/') ? join(homedir(), p.slice(2)) : resolve(p)
@@ -18,6 +18,7 @@ export class Storage {
   private titleWriting: Promise<void> = Promise.resolve()
   private writing: Promise<void> = Promise.resolve()
   private catalogWriting: Promise<void> = Promise.resolve()
+  private modelDataWriting: Promise<void> = Promise.resolve()
   private lastCatalog = ''
   constructor(private directory: string) {}
   async init() {
@@ -70,7 +71,59 @@ export class Storage {
     })
     await this.catalogWriting
   }
-  async modelCatalog(): Promise<ModelCatalog> {
+  private async modelDataContext(cwd?: string, trusted = false) {
+    const root = await this.root()
+    const filename = createHash('sha256').update(JSON.stringify([root, cwd || '', trusted])).digest('hex')
+    const projectStamp = cwd && trusted ? await fs.stat(join(cwd, '.pi/settings.json')).then(s => s.mtimeMs).catch(() => 0) : 0
+    const scope = JSON.stringify([await this.catalogScope(), cwd || '', trusted, projectStamp])
+    const settings = await jsonFile(join(root, 'settings.json'))
+    const gateway = await jsonFile(join(root, 'gateway-thinking.json'))
+    const preference = createHash('sha256').update(JSON.stringify([settings.defaultThinkingLevel, gateway])).digest('hex')
+    return { file: join(this.directory, 'model-data', `${filename}.json`), scope, preference }
+  }
+  async cacheModelData(snapshot: RuntimeSnapshot, cwd?: string, trusted = false) {
+    if (!snapshot.model || snapshot.settingsErrors?.thinking || !snapshot.thinking) return
+    const model = modelInfo(snapshot.model)!
+    const status = snapshot.statuses['gateway-thinking'] || ''
+    const state: CachedModelSettings = {
+      provider: model.provider, id: model.id, thinking: snapshot.thinking,
+      levels: snapshot.thinkingLevels.filter(v => ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(v)),
+      mode: status.includes('上游默认') ? 'default' : status.includes('推理预算') ? 'budget' : 'level',
+      defaultAvailable: snapshot.commands.some(c => c.name === 'gateway-thinking'), updatedAt: Date.now()
+    }
+    const models = snapshot.models.map(modelInfo).filter((m): m is ModelInfo => !!m)
+    const position = models.findIndex(m => m.provider === model.provider && m.id === model.id)
+    if (position >= 0) models[position] = model; else models.push(model)
+    const context = await this.modelDataContext(cwd, trusted)
+    this.modelDataWriting = this.modelDataWriting.catch(() => {}).then(async () => {
+      // Ignore results from a connection whose configuration changed while the write was queued.
+      const current = await this.modelDataContext(cwd, trusted)
+      if (current.scope !== context.scope || current.preference !== context.preference) return
+      const previous = await jsonFile(context.file)
+      const states = previous.scope === context.scope && Array.isArray(previous.states) ? previous.states : []
+      const kept = states.filter((s: any) => s.state?.provider !== state.provider || s.state?.id !== state.id).slice(-499)
+      const data = JSON.stringify({ scope: context.scope, models: models.slice(0, 5000), updatedAt: Date.now(), states: [...kept, { preference: context.preference, state }] })
+      if (Buffer.byteLength(data) > 4 * 1024 * 1024) return
+      await fs.mkdir(dirname(context.file), { recursive: true })
+      await fs.writeFile(`${context.file}.tmp`, data, { mode: 0o600 }); await fs.rename(`${context.file}.tmp`, context.file)
+    })
+    await this.modelDataWriting
+  }
+  async modelCatalog(cwd?: string, trusted = false): Promise<ModelCatalog> {
+    const context = await this.modelDataContext(cwd, trusted)
+    const data = await jsonFile(context.file)
+    if (data.scope === context.scope && Array.isArray(data.models)) {
+      const models = data.models.map(modelInfo).filter((m: ModelInfo | undefined): m is ModelInfo => !!m).sort(compareModels)
+      const settings: CachedModelSettings[] = (Array.isArray(data.states) ? data.states : []).filter((s: any) => s.preference === context.preference).flatMap((s: any) => {
+        const v = s.state
+        if (!v || typeof v.provider !== 'string' || typeof v.id !== 'string' || !['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(v.thinking) || !['level', 'default', 'budget'].includes(v.mode) || !Array.isArray(v.levels)) return []
+        return [{ provider: v.provider, id: v.id, thinking: v.thinking, mode: v.mode, levels: v.levels.filter((l: unknown) => ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(String(l))), defaultAvailable: v.defaultAvailable === true, updatedAt: Number(v.updatedAt) || 0 }]
+      })
+      if (models.length) return { models, settings, source: 'cache', updatedAt: Number(data.updatedAt) || undefined }
+    }
+    return this.legacyModelCatalog()
+  }
+  private async legacyModelCatalog(): Promise<ModelCatalog> {
     const cached = await jsonFile(join(this.directory, 'model-catalog.json'))
     if (cached.scope === await this.catalogScope() && Array.isArray(cached.models)) {
       const models = cached.models.map(modelInfo).filter((m: ModelInfo | undefined): m is ModelInfo => !!m).sort(compareModels)
@@ -110,7 +163,8 @@ export class Storage {
     const cached = await jsonFile(join(this.directory, 'model-catalog.json'))
     const model = cached.scope === await this.catalogScope() && Array.isArray(cached.models)
       ? cached.models.map(modelInfo).find((m: ModelInfo | undefined) => m?.provider === provider && m.id === id) : undefined
-    return { provider, id, name: model?.name || id }
+    const thinking = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(settings.defaultThinkingLevel) ? settings.defaultThinkingLevel as string : undefined
+    return { provider, id, name: model?.name || id, thinking }
   }
   async setTitle(path: string, title: string, source: 'auto' | 'manual') {
     if (source === 'auto' && this.titles[path]) return

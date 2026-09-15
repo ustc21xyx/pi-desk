@@ -27,7 +27,7 @@ export class PiRuntime {
   private startedMessages = new Map<string, string>()
   private closing?: Promise<void>
   private revising = false
-  constructor(cwd: string, private publish: (s: RuntimeSnapshot) => void, private editor: (id: string, text: string) => void, path?: string) {
+  constructor(cwd: string, private publish: (s: RuntimeSnapshot) => void, private editor: (id: string, text: string) => void, path?: string, private settingsRead?: (snapshot: RuntimeSnapshot) => void) {
     this.snapshot = { id: randomUUID(), cwd, sessionPath: path, title: '新会话', completedRuns: 0, phase: 'starting', messages: [], tools: {}, models: [], thinking: '', thinkingLevels: [], commands: [], dialogs: [], statuses: {}, widgets: {}, queue: { steering: [], followUp: [] }, notices: [], phaseStartedAt: Date.now() }
   }
   emit() {
@@ -220,7 +220,7 @@ export class PiRuntime {
     } catch {
       this.snapshot.settingsErrors = { ...this.snapshot.settingsErrors, thinking: '思考档位读取失败，请重试加载。' }
     }
-    this.emit()
+    this.emit(); this.settingsRead?.(this.snapshot)
   }
   private setStats(data: JsonObject) {
     const nonnegative = (n: unknown): number | undefined => typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : undefined
@@ -273,7 +273,7 @@ export class PiRuntime {
       const title = firstUser?.blocks.find(b => b.type === 'text')?.text
       if (title) this.snapshot.title = title.replace(/\s+/g, ' ').slice(0, 70)
     }
-    this.emit()
+    this.emit(); this.settingsRead?.(this.snapshot)
   }
   async act(action: RuntimeAction) {
     if (this.revising && action.type !== 'dialog') throw new Error('正在修改对话，请稍候。')

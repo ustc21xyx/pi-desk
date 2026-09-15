@@ -123,7 +123,9 @@ async function startProject(input: unknown) {
       autoNamed.add(key)
       void store.index().then(() => naming.name(path)).catch(e => { runtime.notice(`自动命名未完成：${e.message}`, 'warning') })
     }
-  }, (id, text) => send('desk:editor', { id, text }), path)
+  }, (id, text) => send('desk:editor', { id, text }), path, snapshot => {
+    if (snapshot.prepared) void store.cacheModelData(snapshot, cwd, v.trust === true).catch(() => {})
+  })
   runtime.snapshot.prepared = v.prepared === true
   runtime.preparationTrust = v.trust
   if (quitting) throw new Error('应用正在退出。')
@@ -177,7 +179,7 @@ function registerIPC() {
     if (live().some(r => !r.snapshot.settingsOnly && !r.snapshot.prepared && !['idle', 'error', 'closed'].includes(r.snapshot.phase) && (r.snapshot.cwd === root || r.snapshot.cwd.startsWith(root + '/') || root.startsWith(r.snapshot.cwd + '/')))) throw new Error('项目中还有 Pi 任务运行，请先停止或等待完成。')
     return revertReview(root, text(snapshotId, 100), staged, fileId === undefined ? undefined : text(fileId, 100), hunkId === undefined ? undefined : text(hunkId, 100))
   })
-  handle('modelCatalog', () => store.modelCatalog())
+  handle('modelCatalog', async (cwd, trusted) => store.modelCatalog(cwd === undefined ? undefined : await store.authorizeProject(text(cwd)), trusted === true))
   handle('defaultModel', () => store.defaultModel())
   handle('prepareSettings', async () => {
     if (preparingSettings) return preparingSettings
@@ -192,7 +194,7 @@ function registerIPC() {
       const runtime = new PiRuntime(cwd, snapshot => {
         send('desk:runtime', snapshot)
         if (snapshot.models.length && !snapshot.settingsErrors?.models) void store.cacheModels(snapshot.models, catalogScope).catch(() => {})
-      }, () => {})
+      }, () => {}, undefined, snapshot => { void store.cacheModelData(snapshot).catch(() => {}) })
       runtime.snapshot.settingsOnly = true
       runtimes.set(runtime.snapshot.id, runtime)
       const bridge = app.isPackaged ? join(process.resourcesPath, 'desk-bridge.mjs') : join(app.getAppPath(), 'resources/desk-bridge.mjs')
@@ -270,7 +272,9 @@ function registerIPC() {
   })
   handle('action', async (id, input) => {
     const runtime = runtimes.get(text(id, 100)); if (!runtime) throw new Error('连接不存在。')
-    await runtime.act(validateAction(input))
+    const action = validateAction(input)
+    await runtime.act(action)
+    if (action.type === 'thinking' || action.type === 'model' && (runtime.snapshot.settingsOnly || runtime.snapshot.prepared)) void store.cacheModelData(runtime.snapshot, runtime.snapshot.settingsOnly ? undefined : runtime.snapshot.cwd, runtime.preparationTrust === true).catch(() => {})
   })
   handle('pickImages', async () => {
     const result = await dialog.showOpenDialog(win!, { title: '添加图片', properties: ['openFile', 'multiSelections'], filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }] })
