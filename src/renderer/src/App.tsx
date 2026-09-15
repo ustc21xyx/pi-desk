@@ -220,7 +220,7 @@ export default function App() {
       if (!path && active.kind === 'new') {
         const selected = pendingSettings.current
         if (selected.model) await window.desk.action(id, { type: 'model', ...selected.model })
-        if (selected.thinking) await window.desk.action(id, { type: 'thinking', level: selected.thinking })
+        if (selected.thinking) await window.desk.action(id, selected.thinking === 'default' ? { type: 'prompt', message: '/gateway-thinking default' } : { type: 'thinking', level: selected.thinking })
       }
       return id
     } finally { starting.current = false }
@@ -241,7 +241,7 @@ export default function App() {
         setSettingsId(id)
         await waitUntilReady(id)
         if (pendingSettings.current.model) await window.desk.action(id, { type: 'model', ...pendingSettings.current.model })
-        if (pendingSettings.current.thinking) await window.desk.action(id, { type: 'thinking', level: pendingSettings.current.thinking })
+        if (pendingSettings.current.thinking) await window.desk.action(id, pendingSettings.current.thinking === 'default' ? { type: 'prompt', message: '/gateway-thinking default' } : { type: 'thinking', level: pendingSettings.current.thinking })
         await window.desk.action(id, { type: 'refresh' })
         setModal(kind)
       } else {
@@ -258,7 +258,7 @@ export default function App() {
       if (runtime.settingsOnly || runtime.prepared) {
         if (action.type === 'model') { pendingSettings.current = { model: { provider: action.provider, modelId: action.modelId } }; setDraftModel(runtime.models.find(m => m.provider === action.provider && m.id === action.modelId)) }
         if (action.type === 'thinking' && runtime.model) pendingSettings.current = { model: { provider: runtime.model.provider, modelId: runtime.model.id }, thinking: action.level }
-        if (action.type === 'prompt' && action.message === '/gateway-thinking default' && runtime.model) pendingSettings.current = { model: { provider: runtime.model.provider, modelId: runtime.model.id } }
+        if (action.type === 'prompt' && action.message === '/gateway-thinking default' && runtime.model) pendingSettings.current = { model: { provider: runtime.model.provider, modelId: runtime.model.id }, thinking: 'default' }
       }
       if (close) setModal(null)
     } catch (e) { notify(e) } finally { setSavingSettings(false) }
@@ -419,7 +419,7 @@ export default function App() {
     {modal === 'thinking' && runtime && <Modal title="思考强度" onClose={() => { if (!savingSettings) setModal(null) }}>
       {error && <div className="picker-error" role="alert">{error}</div>}<div className="thinking-description"><strong>{runtime.model?.name || '当前模型'}</strong><p>{upstreamDefault ? '当前由上游决定推理方式。只有该模型明确支持的档位才会列出。' : budgetMode ? '当前使用网关推理预算。可选择受支持的档位，或打开网关选项调整。' : runtime.model && !runtime.model.reasoning ? '本机 Pi 未提供可调档位，这不代表上游没有思考能力。' : '档位与映射来自本机 Pi，沿用已加载的自动发现结果和手动覆盖。设置对下一条消息生效。'}</p></div>
       {runtime.settingsErrors?.thinking ? <div className="picker-empty"><p>{runtime.settingsErrors.thinking}</p><button className="secondary-button" disabled={savingSettings || busy} onClick={() => void applyAgentSetting({ type: 'refresh' }, false)}>重新加载</button></div> : <div className="picker-list thinking-options">
-        {(upstreamDefault || budgetMode) && <button disabled={savingSettings || busy} onClick={() => void applyAgentSetting({ type: 'prompt', message: '/gateway-thinking default' })}><span><strong>上游默认</strong><small>由服务商决定推理方式</small></span>{upstreamDefault && <Check size={15} />}</button>}
+        {gatewayAvailable && <button disabled={savingSettings || busy} onClick={() => void applyAgentSetting({ type: 'prompt', message: '/gateway-thinking default' })}><span><strong>上游默认</strong><small>由服务商决定推理方式</small></span>{upstreamDefault && <Check size={15} />}</button>}
         {thinkingChoices.map(level => <button key={level} disabled={savingSettings || busy || (thinkingChoices.length === 1 && !runtime.model?.reasoning)} onClick={() => void applyAgentSetting({ type: 'thinking', level })}><span><strong>{thinkingLabels[level] || level}</strong><small>{runtime.model?.thinkingLevelMap?.[level] && runtime.model.thinkingLevelMap[level] !== level ? `${level} → ${runtime.model.thinkingLevelMap[level]}` : level}</small></span>{!upstreamDefault && !budgetMode && runtime.thinking === level && <Check size={15} />}</button>)}
         {!thinkingChoices.length && !upstreamDefault && !budgetMode && <p className="picker-empty">当前模型未提供可选档位。</p>}
       </div>}
