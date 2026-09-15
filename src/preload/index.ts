@@ -2,6 +2,10 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { DeskAPI } from '../shared/contracts'
 const invoke = (name: string, ...args: unknown[]) => ipcRenderer.invoke(`desk:${name}`, ...args)
 const api: DeskAPI = {
+  fileReferences: (cwd, query) => invoke('fileReferences', cwd, query),
+  recovery: path => invoke('recovery', path), dismissRecovery: path => invoke('dismissRecovery', path),
+  viewing: id => invoke('viewing', id),
+  onNavigate: listener => { const fn = (_event: unknown, id: string) => listener(id); ipcRenderer.on('desk:navigate', fn); return () => ipcRenderer.removeListener('desk:navigate', fn) },
   defaultModel: () => invoke('defaultModel'),
   updateState: () => invoke('updateState'), checkUpdate: () => invoke('checkUpdate'),
   downloadUpdate: () => invoke('downloadUpdate'), installUpdate: () => invoke('installUpdate'),
@@ -14,7 +18,7 @@ const api: DeskAPI = {
   onNaming: listener => { const fn = (_event: unknown, status: any) => listener(status); ipcRenderer.on('desk:naming', fn); return () => ipcRenderer.removeListener('desk:naming', fn) },
   bootstrap: () => invoke('bootstrap'), selectPath: kind => invoke('selectPath', kind),
   savePreferences: patch => invoke('savePreferences', patch), projectTrust: cwd => invoke('projectTrust', cwd),
-  history: path => invoke('history', path), prepareSettings: () => invoke('prepareSettings'), modelCatalog: () => invoke('modelCatalog'), start: options => invoke('start', options),
+  history: (path, before) => invoke('history', path, before), prepareSettings: () => invoke('prepareSettings'), modelCatalog: () => invoke('modelCatalog'), start: options => invoke('start', options),
   action: (id, action) => invoke('action', id, action), pickImages: () => invoke('pickImages'),
   files: (cwd, path) => invoke('files', cwd, path), readFile: (cwd, path) => invoke('readFile', cwd, path),
   diff: cwd => invoke('diff', cwd), copyText: text => invoke('copyText', text), openExternal: url => invoke('openExternal', url),

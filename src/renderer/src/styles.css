@@ -42,3 +42,27 @@
 
 /* Animate project disclosure without fixed list heights or unmount timers. */
 .project-sessions-collapse{display:grid;grid-template-rows:1fr;opacity:1;transition:grid-template-rows 220ms cubic-bezier(.2,.8,.2,1),opacity 180ms ease}.project-sessions-collapse.collapsed{grid-template-rows:0fr;opacity:0}.project-sessions-inner{min-height:0;overflow:hidden}.project-chevron{transition:transform 220ms cubic-bezier(.2,.8,.2,1)}.project-chevron.expanded{transform:rotate(90deg)}
+
+/* Small disclosures share the existing quiet, compact workspace treatment. */
+.load-earlier{display:block;margin:0 auto 16px;padding:5px 12px;color:var(--muted);font-size:11px;border:1px solid var(--border);border-radius:14px;background:var(--surface)}
+.load-earlier:hover{color:var(--text);background:var(--hover)}
+.runtime-status{position:relative;display:inline-block;font-size:11px;max-width:100%;min-width:0}
+.runtime-status>summary{cursor:pointer;list-style:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.runtime-status>summary::-webkit-details-marker{display:none}
+.runtime-status-detail{position:absolute;right:0;top:calc(100% + 8px);z-index:50;width:260px;padding:12px;border:1px solid var(--border);background:var(--surface);border-radius:9px;box-shadow:var(--shadow);white-space:normal;color:var(--secondary);line-height:1.7}
+.runtime-status-detail p{margin:5px 0 0}.working .runtime-status-detail{left:0;right:auto;top:auto;bottom:calc(100% + 8px)}
+.unread-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none}.unread-dot.error,.unread-dot.question{background:var(--error)}
+.queue-preview,.recovered-reply{font-size:11px;color:var(--secondary);margin:0 0 7px;border:1px solid var(--border);border-radius:7px;background:var(--subtle)}
+.queue-preview>summary,.recovered-reply>summary{display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none;padding:7px 10px}
+.queue-preview>summary>svg,.recovered-reply>summary>svg{margin-left:auto;transition:transform 150ms}.queue-preview[open]>summary>svg,.recovered-reply[open]>summary>svg{transform:rotate(180deg)}
+.queue-items{max-height:200px;overflow:auto;padding:0 10px}.queue-items section>strong{display:block;font-size:10px;color:var(--muted);font-weight:500;padding:5px 0}
+.queued-message{display:flex;gap:8px;align-items:flex-start;border-top:1px solid var(--border)}.queued-message p{white-space:pre-wrap;overflow-wrap:anywhere;flex:1;min-width:0;max-height:100px;overflow:auto;margin:6px 0;line-height:1.6}
+.queue-preview footer,.recovered-reply footer{display:flex;gap:10px;align-items:center;padding:6px 10px;color:var(--muted)}.queue-preview footer>span{margin-right:auto}.recovered-reply footer button{display:flex;gap:5px;align-items:center}
+.recovery-hint{font-size:10px;color:var(--muted);margin:3px 10px 8px;line-height:1.6}.recovered-content{padding:0 10px;max-height:260px;overflow:auto}.recovered-content pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px}
+.send-behavior{border:0;background:transparent;color:var(--secondary);font-size:10px;max-width:110px;padding:5px 0}
+.file-reference{display:inline-flex;max-width:100%;gap:4px;align-items:center;vertical-align:baseline;padding:1px 5px;border:1px solid var(--border);border-radius:4px;color:var(--secondary);background:var(--surface);font:inherit;font-size:.9em;overflow-wrap:anywhere}
+.file-reference:hover{background:var(--hover);color:var(--text)}.file-reference>svg{flex:none}
+.composer-box{position:relative}.file-reference-menu{position:absolute;bottom:100%;left:0;right:0;margin-bottom:7px;padding:5px;background:var(--surface);border:1px solid var(--border);border-radius:9px;box-shadow:var(--shadow);z-index:30;max-height:290px;overflow:auto}
+.file-reference-menu>button{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:transparent;padding:6px 8px;border-radius:5px;color:var(--text);font-size:12px}.file-reference-menu>button.selected,.file-reference-menu>button:hover{background:var(--hover)}.file-reference-menu>button>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.file-reference-menu small{display:block;font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis}.file-reference-menu p{font-size:10px;color:var(--muted);padding:3px 8px;margin:4px 0}
+@media(prefers-reduced-motion:reduce){.queue-preview>summary>svg,.recovered-reply>summary>svg{transition:none}}
+.runtime-status{-webkit-app-region:no-drag}.runtime-status-detail{font-weight:400}.queue-preview footer,.recovered-reply footer{flex-wrap:wrap}.send-controls{flex-shrink:0}

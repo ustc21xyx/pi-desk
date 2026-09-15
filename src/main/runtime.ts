@@ -19,6 +19,7 @@ export class PiRuntime {
   private publishing?: NodeJS.Timeout
   private writeTail: Promise<void> = Promise.resolve()
   private queuedBytes = 0
+  private statusKey = ''
   private activity: RuntimeSnapshot['phase'] = 'idle'
   private refreshPromise?: Promise<void>
   private statsRefresh?: Promise<void>
@@ -27,13 +28,17 @@ export class PiRuntime {
   private closing?: Promise<void>
   private revising = false
   constructor(cwd: string, private publish: (s: RuntimeSnapshot) => void, private editor: (id: string, text: string) => void, path?: string) {
-    this.snapshot = { id: randomUUID(), cwd, sessionPath: path, title: '新会话', completedRuns: 0, phase: 'starting', messages: [], tools: {}, models: [], thinking: '', thinkingLevels: [], commands: [], dialogs: [], statuses: {}, widgets: {}, queue: { steering: [], followUp: [] }, notices: [] }
+    this.snapshot = { id: randomUUID(), cwd, sessionPath: path, title: '新会话', completedRuns: 0, phase: 'starting', messages: [], tools: {}, models: [], thinking: '', thinkingLevels: [], commands: [], dialogs: [], statuses: {}, widgets: {}, queue: { steering: [], followUp: [] }, notices: [], phaseStartedAt: Date.now() }
   }
   emit() {
+    const tools = Object.values(this.snapshot.tools).filter(t => t.status === 'running')
+    const reply = this.snapshot.messages.findLast(m => m.role === 'assistant')
+    const kind = this.snapshot.phase === 'running' ? tools.length ? `tool:${tools.map(t => t.id).join(',')}` : reply?.streaming && reply.blocks.some(b => b.type === 'text' && b.text) ? 'text' : reply?.streaming && reply.blocks.some(b => b.type === 'thinking' && b.text) ? 'thinking' : 'model' : this.snapshot.phase
+    if (kind !== this.statusKey) { this.statusKey = kind; this.snapshot.phaseStartedAt = Date.now() }
     if (!this.publishing) this.publishing = setTimeout(() => { this.publishing = undefined; this.publish(this.snapshot) }, 40)
   }
   notice(text: string, level = 'info') { this.snapshot.notices = [...this.snapshot.notices.slice(-19), { id: randomUUID(), text: clipped(text, 4000), level }]; this.emit() }
-  private phase(phase: RuntimeSnapshot['phase']) { this.activity = phase; this.snapshot.phase = this.snapshot.dialogs.length ? 'waiting' : phase; this.emit() }
+  private phase(phase: RuntimeSnapshot['phase']) { if (this.activity !== phase) this.snapshot.phaseStartedAt = Date.now(); this.activity = phase; this.snapshot.phase = this.snapshot.dialogs.length ? 'waiting' : phase; this.emit() }
   async start(installation: Installation, agentDir: string, sessionDir: string | undefined, bridge: string, trust?: boolean) {
     this.emit()
     try {
@@ -56,7 +61,7 @@ export class PiRuntime {
         buffer += decoder.write(chunk)
         let boundary: number
         while ((boundary = buffer.indexOf('\n')) >= 0) {
-          const line = buffer.slice(0, boundary).replace(/\r$/, ''); buffer = buffer.slice(boundary + 1)
+          const line = buffer.slice(0, boundary).replace(/\r$/, '').replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, ''); buffer = buffer.slice(boundary + 1)
           if (!line.trim()) continue
           let event: JsonObject
           try { event = JSON.parse(line) } catch { if (++badLines === 1) this.notice('有扩展向标准输出写入了非协议内容；已忽略这些行。', 'warning'); continue }
@@ -82,6 +87,8 @@ export class PiRuntime {
   private rejectPending(error: Error) { for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(error) }; this.pending.clear() }
   private fail(e: unknown) {
     if (this.stopped) return
+    this.snapshot.outcome = 'error'
+    for (const tool of Object.values(this.snapshot.tools)) if (tool.status === 'running') tool.status = 'error'
     this.snapshot.error = e instanceof Error ? e.message : String(e)
     this.phase('error'); this.rejectPending(new Error(this.snapshot.error))
     void this.close(false)
@@ -111,17 +118,23 @@ export class PiRuntime {
       if (p) { clearTimeout(p.timer); this.pending.delete(event.id); event.success ? p.resolve(event.data || {}) : p.reject(new Error(clipped(event.error || 'Pi 拒绝了请求。', 3000))) }
       return
     }
+    this.snapshot.lastEventAt = Date.now()
     if (event.type === 'extension_ui_request') { this.extensionUI(event); return }
-    if (event.type === 'agent_start') { this.messageRevision++; this.phase('running') }
-    if (event.type === 'agent_settled') { this.snapshot.completedRuns++; this.clearDialogs(); this.phase('idle'); this.liveMessageId = undefined; void this.refresh(true).catch(e => this.notice(e.message, 'warning')) }
+    if (event.type === 'agent_start') { this.messageRevision++; this.snapshot.error = undefined; this.snapshot.outcome = undefined; this.snapshot.retry = undefined; this.phase('running') }
+    if (event.type === 'agent_settled') { const last = this.snapshot.messages.findLast(m => m.role === 'assistant'); this.snapshot.outcome = last?.error || ['error', 'aborted'].includes(last?.stopReason || '') ? 'error' : 'complete'; this.snapshot.retry = undefined; this.snapshot.completedRuns++; this.clearDialogs(); this.phase('idle'); this.liveMessageId = undefined; void this.refresh(true).catch(e => this.notice(e.message, 'warning')) }
     if (event.type === 'turn_end') void this.refreshStats().catch(() => {})
     if (event.type === 'thinking_level_changed') this.snapshot.thinking = String(event.level || '')
-    if (event.type === 'auto_retry_start' || event.type === 'summarization_retry_scheduled') this.phase('retrying')
+    if (event.type === 'auto_retry_start' || event.type === 'summarization_retry_scheduled') {
+      this.snapshot.retry = { reason: /429|rate.limit/i.test(String(event.errorMessage || '')) ? '模型服务暂时限流' : /500|502|503|server.error/i.test(String(event.errorMessage || '')) ? '模型服务暂时不可用' : /EOF|connection|stream|network|timeout|terminated/i.test(String(event.errorMessage || '')) ? '模型连接中断或等待超时' : 'Pi 正在重试本轮请求', attempt: Number.isFinite(event.attempt) ? event.attempt : undefined, max: Number.isFinite(event.maxAttempts) ? event.maxAttempts : undefined, until: Number.isFinite(event.delayMs) ? Date.now() + Math.max(0, event.delayMs) : undefined }
+      this.phase('retrying')
+    }
+    if (event.type === 'auto_retry_end' || event.type === 'summarization_retry_attempt_start') { this.snapshot.retry = undefined; this.phase('running') }
     if (event.type === 'compaction_start') this.phase('compacting')
     if (event.type === 'compaction_end') { void this.refreshStats().catch(() => {}); if (event.errorMessage) this.notice(event.errorMessage, 'error'); this.phase(event.willRetry ? 'running' : 'idle') }
     if (event.type === 'extension_error') this.notice(`扩展错误：${event.event || ''} ${event.error || ''}`, 'error')
     if (event.type === 'queue_update') this.snapshot.queue = { steering: (event.steering || []).map(String), followUp: (event.followUp || []).map(String) }
     if (event.type === 'message_start') {
+      if (event.message?.role === 'assistant') { this.snapshot.retry = undefined; this.phase('running') }
       this.messageRevision++
       const m = displayMessage(event.message, randomUUID())
       this.startedMessages.set(this.messageKey(event.message), m.id)
@@ -266,6 +279,7 @@ export class PiRuntime {
       this.removeDialog(action.id); return
     }
     if (action.type === 'close') { await this.close(); return }
+    if (action.type === 'clearQueue') { await this.request('clear_queue'); return }
     if (action.type === 'stop') {
       await this.request('clear_queue')
       for (const d of [...this.snapshot.dialogs]) { await this.write({ type: 'extension_ui_response', id: d.id, cancelled: true }); this.removeDialog(d.id) }

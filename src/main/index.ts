@@ -10,6 +10,9 @@ import { PiRuntime } from './runtime'
 import { NamingService } from './naming'
 import { readReview, revertReview } from './review'
 import { AppUpdates } from './updates'
+import { fileReferences } from './file-index'
+import { RecoveryStore } from './recovery'
+import { DesktopNotifications, hasPiNotificationScript } from './desktop-notifications'
 import type { Preferences, RuntimeAction } from '../shared/contracts'
 
 const exec = promisify(execFile)
@@ -19,6 +22,8 @@ let win: BrowserWindow | null = null
 let store: Storage
 let naming: NamingService
 let updates: AppUpdates
+let recovery: RecoveryStore
+const notifications = new DesktopNotifications(() => win, id => { if (!win) createWindow(); win?.show(); win?.focus(); send('desk:navigate', id) })
 let installingUpdate = false
 let activeRequests = 0
 const autoNamed = new Set<string>()
@@ -56,7 +61,7 @@ async function inProject(cwd: unknown, subpath: unknown) {
 }
 function validateAction(input: unknown): RuntimeAction {
   const a = object(input), type = text(a.type, 30)
-  if (['stop', 'refresh', 'compact', 'close', 'activate'].includes(type)) return { type } as RuntimeAction
+  if (['clearQueue', 'stop', 'refresh', 'compact', 'close', 'activate'].includes(type)) return { type } as RuntimeAction
   if (type === 'prompt') {
     const message = text(a.message, 1_000_000)
     if (a.behavior !== undefined && !['steer', 'followUp'].includes(a.behavior)) throw new Error('队列模式无效。')
@@ -105,9 +110,12 @@ async function startProject(input: unknown) {
   const installation = await localInstallation()
   const agentDir = await store.root()
   const sessionDir = store.preferences.sessionDir ? await store.sessionRoot() : undefined
+  const externalNotifications = await hasPiNotificationScript(agentDir, cwd, v.trust === true || !trust.needsDecision)
   const runtime = new PiRuntime(cwd, snapshot => {
     const path = snapshot.sessionPath
     if (path && store.titles[path]) snapshot.title = store.titles[path].title
+    recovery.observe(snapshot)
+    notifications.observe(snapshot, store.preferences.desktopNotifications, externalNotifications)
     send('desk:runtime', snapshot)
     const key = `${snapshot.id}:${path}`
     if (path && store.preferences.naming.enabled && snapshot.phase === 'idle' && snapshot.completedRuns > 0 && snapshot.messages.some(m => m.role === 'assistant') && !autoNamed.has(key)) {
@@ -141,6 +149,7 @@ function registerIPC() {
       // Stop accepting work before closing idle connections; never interrupt an active task.
       await Promise.all([...runtimes.values()].map(r => r.close()))
       await updates.handoff(prepared)
+      await recovery.flushAll()
       naming.close()
       quitting = true
       app.quit()
@@ -215,6 +224,7 @@ function registerIPC() {
       }
     }
     if (v.naming !== undefined) { const n = object(v.naming); if (naming.status.running && JSON.stringify(n) !== JSON.stringify(store.preferences.naming)) throw new Error('请先停止历史命名，再更换命名设置。'); if (typeof n.enabled !== 'boolean') throw new Error('命名开关无效。'); patch.naming = { enabled: n.enabled, provider: text(n.provider, 300).trim(), modelId: text(n.modelId, 1000).trim() } }
+    if (v.desktopNotifications !== undefined) { if (typeof v.desktopNotifications !== 'boolean') throw new Error('通知选项无效。'); patch.desktopNotifications = v.desktopNotifications }
     if (v.theme !== undefined) { if (!['light', 'dark', 'system'].includes(v.theme)) throw new Error('主题无效。'); patch.theme = v.theme }
     for (const key of ['archived', 'pinned'] as const) if (v[key] !== undefined) { if (!Array.isArray(v[key]) || v[key].length > 5000) throw new Error('会话列表无效。'); patch[key] = v[key].map((s: unknown) => text(s, 4096)) }
     return store.save(patch)
@@ -229,7 +239,27 @@ function registerIPC() {
     for (const r of runtimes.values()) if (r.snapshot.sessionPath === path) { r.snapshot.title = title; r.emit() }
   })
   handle('projectTrust', cwd => store.trust(text(cwd)))
-  handle('history', path => store.history(text(path)))
+  handle('viewing', id => {
+    notifications.viewing = id === null ? null : text(id, 100)
+    const runtime = id && runtimes.get(id)
+    if (runtime && notifications.visible(id)) { runtime.snapshot.unread = undefined; runtime.emit() }
+  })
+  handle('history', async (path, before) => {
+    path = text(path)
+    if (!store.knownSessions.has(path) && [...runtimes.values()].some(r => r.snapshot.sessionPath === path)) await store.index()
+    return store.historyPage(path, before === undefined ? undefined : text(before, 100))
+  })
+  handle('recovery', async path => {
+    path = text(path)
+    if (!store.knownSessions.has(path)) return undefined
+    return recovery.read(path, (await store.history(path, false)).messages)
+  })
+  handle('dismissRecovery', path => {
+    path = text(path)
+    if (!store.knownSessions.has(path)) throw new Error('会话不存在。')
+    return recovery.dismiss(path)
+  })
+  handle('fileReferences', async (cwd, query) => fileReferences(await store.authorizeProject(text(cwd)), text(query, 300)))
   handle('start', async input => {
     if (object(input).prepared !== true) return startProject(input)
     const request = preparingProject.then(() => startProject(input))
@@ -286,6 +316,7 @@ function createWindow() {
   win.webContents.session.setPermissionCheckHandler(() => false)
   win.once('ready-to-show', () => win?.show())
   win.on('close', event => { if (!quitting && live().some(r => !r.snapshot.settingsOnly && !r.snapshot.prepared && r.snapshot.phase !== 'idle')) { event.preventDefault(); win?.hide() } })
+  win.on('focus', () => { const runtime = notifications.viewing && runtimes.get(notifications.viewing); if (runtime) { runtime.snapshot.unread = undefined; runtime.emit() } })
   win.on('closed', () => { win = null })
   if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) void win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else void win.loadURL('desk://app/index.html')
@@ -296,6 +327,7 @@ else {
   app.on('second-instance', () => { if (!win) createWindow(); win?.show(); win?.focus() })
   void app.whenReady().then(async () => {
     store = new Storage(app.getPath('userData')); await store.init()
+    recovery = new RecoveryStore(join(app.getPath('userData'), 'recovery'))
     updates = new AppUpdates(state => send('desk:update', state))
     naming = new NamingService(store, app.isPackaged ? join(process.resourcesPath, 'naming-provider.mjs') : join(app.getAppPath(), 'resources/naming-provider.mjs'), status => send('desk:naming', status), (path, title) => {
       for (const r of runtimes.values()) if (r.snapshot.sessionPath === path) { r.snapshot.title = title; r.emit() }
@@ -330,7 +362,10 @@ else {
       naming.close()
       quitting = true
       await Promise.allSettled([preparingProject, preparingSettings])
+      for (const r of runtimes.values()) recovery.observe(r.snapshot)
+      await recovery.flushAll()
       await Promise.all([...runtimes.values()].map(r => r.close()))
+      await recovery.flushAll()
       await Promise.all([...settingsDirectories].map(path => fs.rm(path, { recursive: true, force: true }).catch(() => {})))
       app.quit()
     })()

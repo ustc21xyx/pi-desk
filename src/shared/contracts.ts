@@ -1,6 +1,7 @@
 export type JsonObject = Record<string, any>
 export interface Installation { executable: string; node: string; version: string; compatible: boolean }
 export interface Preferences {
+  desktopNotifications: boolean;
   executable: string; node: string; agentDir: string; sessionDir: string;
   naming: { enabled: boolean; provider: string; modelId: string };
   projects: string[]; theme: 'light' | 'dark' | 'system'; archived: string[]; pinned: string[]
@@ -27,7 +28,11 @@ export interface ExtensionDialog {
 }
 export interface EditDiff { text: string; format: 'unified' | 'pi'; truncated: boolean }
 export interface ToolActivity { id: string; name: string; args: string; output: string; status: 'running' | 'done' | 'error'; editDiff?: EditDiff }
+export interface RecoveryPreview { truncated?: boolean; message: DisplayMessage; savedAt: number }
+export interface HistoryPage { messages: DisplayMessage[]; notice?: string; hasMore: boolean }
 export interface RuntimeSnapshot {
+  unread?: 'complete' | 'error' | 'question';
+  lastEventAt?: number; phaseStartedAt?: number; retry?: { reason?: string; attempt?: number; max?: number; until?: number }; outcome?: 'complete' | 'error';
   settingsOnly?: boolean;
   prepared?: boolean;
   id: string; cwd: string; sessionPath?: string; title: string; completedRuns: number;
@@ -53,7 +58,7 @@ export interface UpdateState {
 export interface Bootstrap { version: string; defaultModel?: DefaultModel; namingStatus: NamingStatus; preferences: Preferences; installations: Installation[]; sessions: SessionInfo[]; runtimes: RuntimeSnapshot[]; warnings: string[] }
 export type RuntimeAction =
   | { type: 'prompt'; message: string; behavior?: 'steer' | 'followUp'; images?: { type: 'image'; data: string; mimeType: string }[] }
-  | { type: 'stop' | 'refresh' | 'compact' | 'close' | 'activate' }
+  | { type: 'clearQueue' | 'stop' | 'refresh' | 'compact' | 'close' | 'activate' }
   | { type: 'model'; provider: string; modelId: string }
   | { type: 'thinking'; level: string }
   | { type: 'rename'; name: string }
@@ -64,6 +69,11 @@ export interface RevisionDraft { text: string; images: { type: 'image'; data: st
 export interface ReviewFile { id: string; path: string; patch: string; reversible: boolean; hunks: { id: string; header: string; patch: string }[] }
 export interface ReviewSnapshot { id: string; sections: { staged: boolean; files: ReviewFile[] }[] }
 export interface DeskAPI {
+  fileReferences(cwd: string, query: string): Promise<{ paths: string[]; truncated: boolean }>
+  recovery(path: string): Promise<RecoveryPreview | undefined>
+  dismissRecovery(path: string): Promise<void>
+  viewing(id: string | null): Promise<void>
+  onNavigate(listener: (id: string) => void): () => void
   defaultModel(): Promise<DefaultModel | undefined>
   updateState(): Promise<UpdateState>
   checkUpdate(): Promise<UpdateState>
@@ -84,7 +94,7 @@ export interface DeskAPI {
   selectPath(kind: 'project' | 'executable' | 'node' | 'agentDir' | 'sessionDir' | 'session'): Promise<string | null>
   savePreferences(patch: Partial<Preferences>): Promise<Preferences>
   projectTrust(cwd: string): Promise<ProjectTrust>
-  history(path: string): Promise<{ messages: DisplayMessage[]; notice?: string }>
+  history(path: string, before?: string): Promise<HistoryPage>
   prepareSettings(): Promise<string>
   modelCatalog(): Promise<ModelCatalog>
   start(options: { cwd: string; sessionPath?: string; trust?: boolean; prepared?: boolean }): Promise<string>

@@ -24,6 +24,7 @@ export class Storage {
     const saved = await jsonFile(join(this.directory, 'preferences.json'))
     this.titles = await jsonFile(join(this.directory, 'session-titles.json'))
     this.preferences = {
+      desktopNotifications: saved.desktopNotifications !== false,
       naming: { enabled: saved.naming?.enabled === true, provider: typeof saved.naming?.provider === 'string' ? saved.naming.provider : '', modelId: typeof saved.naming?.modelId === 'string' ? saved.naming.modelId : '' },
       executable: typeof saved.executable === 'string' ? saved.executable : '',
       node: typeof saved.node === 'string' ? saved.node : '',
@@ -173,11 +174,18 @@ export class Storage {
     const branch = activeBranch(entries)
     return { messages: branch.filter(e => e.type === 'message').slice(recentOnly ? -500 : 0).map((e, i) => ({ ...displayMessage(e.message, String(e.id || i)), entryId: typeof e.id === 'string' ? e.id : undefined, completedAt: Date.parse(e.timestamp) || undefined })), notice: branch.length > 500 ? '显示当前分支最近 500 条记录；原始会话保持完整。' : undefined }
   }
+  async historyPage(path: string, before?: string) {
+    const all = (await this.history(path, false)).messages
+    const end = before === undefined ? all.length : all.findIndex(m => m.entryId === before)
+    if (end < 0) throw new Error('会话分支已变化，请重新打开会话。')
+    const start = Math.max(0, end - 100)
+    return { messages: all.slice(start, end), hasMore: start > 0 }
+  }
   async authorizeProject(cwd: string) {
     const path = await fs.realpath(cwd)
     const allowed = [...this.preferences.projects, ...this.approvedPaths, ...[...this.knownSessions.values()].map(s => s.cwd)]
     let matches = false
-    for (const p of allowed) if (path === await fs.realpath(p).catch(() => '')) { matches = true; break }
+    for (const p of new Set(allowed)) if (path === await fs.realpath(p).catch(() => '')) { matches = true; break }
     if (!matches || !(await fs.stat(path)).isDirectory()) throw new Error('请先选择项目文件夹。')
     return path
   }

@@ -1,5 +1,7 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowDown, Check, ChevronDown, ChevronRight, Copy, FileCode2, Folder, GitBranch, Pencil, LoaderCircle, Terminal, X } from 'lucide-react'
+import { ReferencedText } from './FileReferences'
+import { RuntimeStatus } from './RuntimeStatus'
 import { ReviewPanel } from './ReviewPanel'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -21,11 +23,15 @@ export function Modal({ title, children, onClose, wide = false }: { title: strin
 }
 // Parse CJK emphasis before React rendering; preserve source text, code and escapes.
 const markdownPlugins = [remarkGfm, remarkCjkFriendly, remarkCjkFriendlyGfmStrikethrough]
-export function RichText({ text }: { text: string }) {
+export const RichText = memo(function RichText({ text, onFile }: { text: string; onFile?: (path: string) => void }) {
   return <Markdown remarkPlugins={markdownPlugins} skipHtml components={{
-    a: ({ href, children }) => <a href={href} onClick={e => { e.preventDefault(); if (href && /^https?:\/\//.test(href)) void window.desk.openExternal(href).catch(() => {}) }} title={href}>{children}</a>,
+    a: ({ href, children }) => <a href={href} onClick={e => { e.preventDefault(); if (href && /^https?:\/\//.test(href)) void window.desk.openExternal(href).catch(() => {}); else if (href && onFile && !href.startsWith('#') && !/^[a-z]+:/i.test(href)) { try { onFile(decodeURIComponent(href).replace(/#L\d+(?:-L\d+)?$/, '').replace(/:\d+(?::\d+)?$/, '')) } catch {} } }} title={href}>{children}</a>,
     img: ({ alt }) => <span className="image-placeholder">[图片{alt ? `：${alt}` : ''}]</span>
   }}>{text}</Markdown>
+})
+function LazyDetails({ className, summary, children }: { className: string; summary: ReactNode; children: () => ReactNode }) {
+  const [open, setOpen] = useState(false)
+  return <details className={className} onToggle={e => setOpen(e.currentTarget.open)}><summary>{summary}</summary>{open && children()}</details>
 }
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
@@ -38,10 +44,30 @@ function duration(ms: number) {
 function toolPreview(args: string) {
   try { const value = JSON.parse(args); return clean(String(value.command || value.cmd || value.path || value.file_path || '')).replace(/\s+/g, ' ').slice(0, 180) } catch { return '' }
 }
-export function Transcript({ messages, runtime, onRevise, revisionDisabled, onShowDiff, selectedDiffId }: { messages: DisplayMessage[]; runtime?: RuntimeSnapshot; onRevise: (message: DisplayMessage, mode: 'edit' | 'fork') => void; revisionDisabled: boolean; onShowDiff: (value: { id: string; path: string; diff: EditDiff }) => void; selectedDiffId?: string }) {
+export function Transcript({ messages, runtime, onRevise, revisionDisabled, onShowDiff, selectedDiffId, onFile, hasMore, loadOlder, loadingOlder }: { onFile: (path: string) => void; hasMore: boolean; loadOlder: (beforeCommit: () => void) => Promise<void>; loadingOlder: boolean; messages: DisplayMessage[]; runtime?: RuntimeSnapshot; onRevise: (message: DisplayMessage, mode: 'edit' | 'fork') => void; revisionDisabled: boolean; onShowDiff: (value: { id: string; path: string; diff: EditDiff }) => void; selectedDiffId?: string }) {
   const ref = useRef<HTMLDivElement>(null), stick = useRef(true)
-  const [atBottom, setAtBottom] = useState(true)
-  useEffect(() => { if (stick.current && ref.current) ref.current.scrollTop = ref.current.scrollHeight }, [messages, runtime])
+  const [atBottom, setAtBottom] = useState(true), [limit, setLimit] = useState(60)
+  const anchor = useRef<{ height: number; top: number } | undefined>(undefined), growing = useRef(false)
+  const windowHead = useRef<string | undefined>(undefined)
+  const keyOf = (m: DisplayMessage) => m.timestamp ? `${m.role}:${m.timestamp}:${m.toolCallId || ''}` : m.id
+  const retainedHead = !stick.current && windowHead.current ? messages.findIndex(m => keyOf(m) === windowHead.current) : -1
+  const hidden = Math.min(Math.max(0, messages.length - limit), retainedHead >= 0 ? retainedHead : messages.length)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    windowHead.current = messages[hidden] && keyOf(messages[hidden])
+    if (anchor.current) { el.scrollTop = anchor.current.top + el.scrollHeight - anchor.current.height; anchor.current = undefined; growing.current = false }
+    else if (stick.current) el.scrollTop = el.scrollHeight
+  }, [messages, limit])
+  async function earlier() {
+    const el = ref.current
+    if (!el || growing.current || loadingOlder || (!hidden && !hasMore)) return
+    growing.current = true; stick.current = false
+    if (hidden) { anchor.current = { height: el.scrollHeight, top: el.scrollTop }; setLimit(n => n + 40) }
+    else {
+      try { await loadOlder(() => { anchor.current = { height: el.scrollHeight, top: el.scrollTop }; setLimit(n => n + 100) }) } finally { growing.current = false }
+    }
+  }
   const toolIds = new Set(messages.flatMap(m => m.blocks.filter(b => b?.type === 'toolCall').map(b => b.id)))
   const results = new Map(messages.filter(m => m.role === 'toolResult').map(m => [m.toolCallId, m]))
   const lastUser = messages.findLast(m => m.role === 'user')
@@ -52,7 +78,7 @@ export function Transcript({ messages, runtime, onRevise, revisionDisabled, onSh
     return <article className={`message ${isUser ? 'user-message' : 'assistant-message'} ${process ? 'process-message' : ''}`} key={message.id}>
       <div className="message-body">{message.blocks.map((block, index) => {
         if (!block) return null
-        if (block.type === 'thinking') return <details className="thinking" key={index}><summary><ChevronRight size={13} />思考过程</summary><div className="markdown"><RichText text={block.text || ''} /></div></details>
+        if (block.type === 'thinking') return <LazyDetails className="thinking" key={index} summary={<><ChevronRight size={13} />思考过程</>}>{() => <div className="markdown"><RichText text={block.text || ''} /></div>}</LazyDetails>
         if (block.type === 'image') return <img className="message-image" key={index} src={`data:${block.mimeType};base64,${block.data}`} alt="会话附件" />
         if (block.type === 'toolCall') {
           const activity = runtime?.tools[block.id || ''], result = results.get(block.id)
@@ -61,23 +87,23 @@ export function Transcript({ messages, runtime, onRevise, revisionDisabled, onSh
           const args = activity?.args || block.arguments || '', preview = toolPreview(args)
           const diff = !failed ? result?.editDiff || activity?.editDiff : undefined
           const isEdit = block.name === 'edit'
-          return <details className={`tool-card ${failed ? 'failed' : ''}`} key={block.id || index}><summary>
+          return <LazyDetails className={`tool-card ${failed ? 'failed' : ''}`} key={block.id || index} summary={<>
             {activity?.status === 'running' ? <LoaderCircle className="spin" size={13} /> : <Terminal size={13} />}<span>{block.name || '工具调用'}</span><code className="tool-preview" title={preview}>{preview}</code>{isEdit && <button className={`tool-diff-button ${selectedDiffId === block.id ? 'active' : ''}`} aria-pressed={selectedDiffId === block.id} disabled={!diff} title={diff ? '查看这次编辑的差异' : failed ? '编辑失败，没有已应用的差异' : result || activity?.status === 'done' ? '这条记录没有保存差异' : '编辑完成后可查看差异'} onClick={event => { event.preventDefault(); event.stopPropagation(); if (diff) { let path = preview; try { const value = JSON.parse(args); path = clean(String(value.path || value.file_path || preview)) } catch {} onShowDiff({ id: block.id || `${message.id}-${index}`, path, diff }) } }}><FileCode2 size={12} />查看差异</button>}<span className="tool-status">{failed ? '执行出错' : activity?.status === 'running' ? '执行中' : result || activity ? '已完成' : '准备执行'}</span><ChevronDown size={12} />
-          </summary><div className="tool-content"><div className="tool-label">输入</div><pre>{clean(args)}</pre>{output && <><div className="tool-label">输出</div><pre>{clean(output)}</pre></>}</div></details>
+          </>}>{() => <div className="tool-content"><div className="tool-label">输入</div><pre>{clean(args)}</pre>{output && <><div className="tool-label">输出</div><pre>{clean(output)}</pre></>}</div>}</LazyDetails>
         }
-        return <div className={isUser ? 'user-text' : 'markdown'} key={index}>{isUser ? block.text : <RichText text={clean(block.text || '')} />}</div>
+        return <div className={isUser ? 'user-text' : 'markdown'} key={index}>{isUser ? <ReferencedText text={block.text || ''} onFile={onFile} /> : <RichText text={clean(block.text || '')} onFile={onFile} />}</div>
       })}{message.error && <div className="inline-error">{message.error}</div>}</div>
       {!isUser && !process && !message.streaming && message.blocks.some(b => b.type === 'text' && b.text) && <CopyButton text={message.blocks.filter(b => b.type === 'text').map(b => b.text).join('\n')} />}
       {isUser && message.entryId && <div className="message-actions">{message.id === lastUser?.id && <button disabled={revisionDisabled} title="编辑最近一条消息，文件改动保持现状" onClick={() => onRevise(message, 'edit')}><Pencil size={12} />编辑并重发</button>}<button disabled={revisionDisabled} title="从这条消息另开分支，保留原会话" onClick={() => onRevise(message, 'fork')}><GitBranch size={12} />从这里分支</button></div>}
     </article>
   }
   const turns: { user?: DisplayMessage; messages: DisplayMessage[] }[] = []
-  for (const message of messages) {
+  for (const message of messages.slice(hidden)) {
     if (message.role === 'user') turns.push({ user: message, messages: [] })
     else { if (!turns.length) turns.push({ messages: [] }); turns.at(-1)!.messages.push(message) }
   }
-  return <div className="transcript-wrap"><div className="transcript" ref={ref} onScroll={() => { const el = ref.current!; const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100; stick.current = bottom; setAtBottom(bottom) }}>
-    <div className="message-column">{turns.map((turn, index) => {
+  return <div className="transcript-wrap"><div className="transcript" ref={ref} onScroll={() => { const el = ref.current!; const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100; stick.current = bottom; setAtBottom(bottom); if (el.scrollTop < 60 && !bottom) void earlier() }}>
+    <div className="message-column">{(hidden > 0 || hasMore) && <button className="load-earlier" disabled={loadingOlder} onClick={() => void earlier()}>{loadingOlder ? '正在加载…' : '查看更早的消息'}</button>}{turns.map((turn, index) => {
       const tail = turn.messages.at(-1)
       const live = index === turns.length - 1 && runtime && !['idle', 'error', 'closed'].includes(runtime.phase)
       const final = !live && tail?.role === 'assistant' && !tail.streaming && !tail.error && !['error', 'aborted', 'toolUse', 'length'].includes(tail.stopReason || '') && !tail.blocks.some(b => b.type === 'toolCall') && tail.blocks.some(b => b.type === 'text' && b.text) ? tail : undefined
@@ -87,12 +113,12 @@ export function Transcript({ messages, runtime, onRevise, revisionDisabled, onSh
       const elapsed = start && end && end >= start ? end - start : undefined
       const calls = steps.reduce((n, m) => n + m.blocks.filter(b => b.type === 'toolCall').length, 0)
       return <Fragment key={turn.user?.id || `leading-${index}`}>{turn.user && renderMessage(turn.user)}
-        {final ? <>{visibleSteps.length > 0 ? <details className="turn-process"><summary><ChevronRight size={13} /><span>工作过程{elapsed !== undefined ? ` · 用时约 ${duration(elapsed)}` : ''}</span>{calls > 0 && <span className="process-count">{calls} 次工具调用</span>}</summary><div className="process-content">{steps.map(m => renderMessage(m, true))}</div></details> : elapsed !== undefined && <div className="turn-duration">用时约 {duration(elapsed)}</div>}{renderMessage({ ...final, blocks: final.blocks.filter(b => b.type !== 'thinking') })}</> : turn.messages.map(m => renderMessage(m, true))}
+        {final ? <>{visibleSteps.length > 0 ? <LazyDetails className="turn-process" summary={<><ChevronRight size={13} /><span>工作过程{elapsed !== undefined ? ` · 用时约 ${duration(elapsed)}` : ''}</span>{calls > 0 && <span className="process-count">{calls} 次工具调用</span>}</>}>{() => <div className="process-content">{steps.map(m => renderMessage(m, true))}</div>}</LazyDetails> : elapsed !== undefined && <div className="turn-duration">用时约 {duration(elapsed)}</div>}{renderMessage({ ...final, blocks: final.blocks.filter(b => b.type !== 'thinking') })}</> : turn.messages.map(m => renderMessage(m, true))}
       </Fragment>
     })}
-      {runtime && !['idle', 'error', 'closed', 'starting'].includes(runtime.phase) && <div className="working"><span className="working-orbit" />{phaseLabels[runtime.phase]}</div>}
+      {runtime && !['idle', 'error', 'closed', 'starting'].includes(runtime.phase) && <div className="working"><span className="working-orbit" /><RuntimeStatus runtime={runtime} /></div>}
     </div>
-  </div>{!atBottom && <button className="jump-bottom" onClick={() => { stick.current = true; ref.current?.scrollTo({ top: ref.current.scrollHeight, behavior: 'smooth' }); setAtBottom(true) }}><ArrowDown size={15} />最新消息</button>}</div>
+  </div>{!atBottom && <button className="jump-bottom" onClick={() => { stick.current = true; setLimit(60); ref.current?.scrollTo({ top: ref.current.scrollHeight, behavior: 'smooth' }); setAtBottom(true) }}><ArrowDown size={15} />最新消息</button>}</div>
 }
 export function ContextMeter({ stats, modelWindow, connected }: { stats?: RuntimeSnapshot['stats']; modelWindow?: number; connected: boolean }) {
   const known = typeof stats?.contextPercent === 'number' && Number.isFinite(stats.contextPercent)
@@ -115,16 +141,16 @@ export function Question({ question, answer, onError }: { question: ExtensionDia
     <div className="question-actions"><button className="text-button" disabled={sending} onClick={() => void submit({ cancelled: true })}>取消</button>{question.method === 'confirm' ? <><button className="secondary-button" disabled={sending} onClick={() => void submit({ confirmed: false })}>否</button><button className="primary-button" disabled={sending} onClick={() => void submit({ confirmed: true })}>确认</button></> : question.method !== 'select' && <button className="primary-button" disabled={sending} onClick={() => void submit({ value })}>提交回答</button>}</div>
   </section>
 }
-export function FilePanel({ cwd, onClose }: { cwd: string; onClose: () => void }) {
+export function FilePanel({ cwd, onClose, initialPath }: { initialPath?: string; cwd: string; onClose: () => void }) {
   const [tab, setTab] = useState<'files' | 'diff'>('files'), [path, setPath] = useState(''), [items, setItems] = useState<FileItem[]>([])
   const [file, setFile] = useState(''), [content, setContent] = useState(''), [error, setError] = useState(''), [loading, setLoading] = useState(false)
   const generation = useRef(0)
   useEffect(() => {
     const id = ++generation.current; setLoading(true); setError(''); setContent(''); setFile('')
-    const work = tab === 'diff' ? Promise.resolve() : window.desk.files(cwd, path).then(items => { if (id === generation.current) setItems(items) })
+    const work = tab === 'diff' ? Promise.resolve() : window.desk.files(cwd, path).then(async items => { if (id !== generation.current) return; setItems(items); if (initialPath && !path) { const text = await window.desk.readFile(cwd, initialPath); if (id === generation.current) { setFile(initialPath); setContent(text) } } })
     void work.catch(e => { if (id === generation.current) setError(errorText(e)) }).finally(() => { if (id === generation.current) setLoading(false) })
     return () => { generation.current++ }
-  }, [cwd, path, tab])
+  }, [cwd, path, tab, initialPath])
   async function open(item: FileItem) {
     if (item.directory) { setPath(item.path); return }
     const id = ++generation.current; setLoading(true); setError(''); setFile(item.path); setContent('')
