@@ -1,6 +1,6 @@
 {
   "name": "pi-desk",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "private": true,
   "description": "A desktop workspace for your local Pi coding agent",
   "author": "Pi Desk",
@@ -41,7 +41,7 @@
     "appId": "local.pidesk.desktop",
     "productName": "Pi Desk",
     "directories": {
-      "output": "release",
+      "output": "release/build.noindex",
       "buildResources": "build"
     },
     "files": [

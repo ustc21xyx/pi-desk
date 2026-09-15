@@ -43,8 +43,11 @@ installed=1
 /usr/bin/codesign --verify --deep --strict "$target"
 /usr/bin/open -a "$target"
 success=1
-printf '安装完成。旧版备份：%s\n' "$backup" > "$result"
-# Keep the application backup; discard only this operation's downloaded image.
+printf '%s\n' '安装完成。' > "$result"
+# The old app exists only for rollback during replacement, never as a saved copy.
+if ! /bin/rm -rf "$backup"; then
+  printf '%s\n' '安装完成，但未能清除旧版临时文件。' > "$result"
+fi
 for download in "$workspace"/Pi-Desk-*.dmg; do
   if [ -f "$download" ]; then /bin/rm -f "$download"; fi
 done

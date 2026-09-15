@@ -1,12 +1,13 @@
 // Maintainer action: build and publish both Mac architectures, never credentials or local Pi data.
 import { spawnSync } from 'node:child_process'
-import { readFileSync, writeFileSync, readdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, readdirSync, rmSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { dirname, resolve, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as asar from '@electron/asar'
 
 process.chdir(resolve(dirname(fileURLToPath(import.meta.url)), '..'))
+const output = 'release/build.noindex'
 function run(command, args, capture = false) {
   const result = spawnSync(command, args, { stdio: capture ? 'pipe' : 'inherit', encoding: 'utf8' })
   if (result.error) throw result.error
@@ -31,7 +32,7 @@ try {
   run('node_modules/.bin/electron-builder', ['--mac', 'dmg', '--arm64', '--x64', '--publish', 'never'])
   const digests = new Map()
   for (const arch of ['arm64', 'x64']) {
-    const bundle = join('release', arch === 'arm64' ? 'mac-arm64' : 'mac', 'Pi Desk.app')
+    const bundle = join(output, arch === 'arm64' ? 'mac-arm64' : 'mac', 'Pi Desk.app')
     run('/usr/bin/codesign', ['--verify', '--deep', '--strict', bundle])
     run('/usr/bin/lipo', [join(bundle, 'Contents/MacOS/Pi Desk'), '-verify_arch', arch === 'arm64' ? 'arm64' : 'x86_64'])
     const resources = join(bundle, 'Contents/Resources'), archive = join(resources, 'app.asar')
@@ -49,8 +50,8 @@ try {
     }
     if (JSON.parse(asar.extractFile(archive, 'package.json')).version !== version) throw new Error('Packaged version mismatch.')
     const filename = `Pi-Desk-${version}-${arch}.dmg`
-    run('/usr/bin/hdiutil', ['verify', join('release', filename)])
-    digests.set(filename, createHash('sha256').update(readFileSync(join('release', filename))).digest('hex'))
+    run('/usr/bin/hdiutil', ['verify', join(output, filename)])
+    digests.set(filename, createHash('sha256').update(readFileSync(join(output, filename))).digest('hex'))
   }
   clean()
   const checksums = `release/SHA256SUMS-${version}.txt`
@@ -60,12 +61,13 @@ try {
   if (!notes) throw new Error('Add release notes to CHANGELOG.md first.')
   const notesPath = `release/notes-${version}.md`
   writeFileSync(notesPath, `${notes}\n\nApple Silicon：arm64；Intel：x64。首次安装将 Pi Desk 拖入应用程序文件夹。\n`)
-  run('gh', ['release', 'create', tag, ...[...digests.keys()].map(name => join('release', name)), checksums, '--repo', repo, '--draft', '--target', head, '--title', `Pi Desk ${version}`, '--notes-file', notesPath])
+  run('gh', ['release', 'create', tag, ...[...digests.keys()].map(name => join(output, name)), checksums, '--repo', repo, '--draft', '--target', head, '--title', `Pi Desk ${version}`, '--notes-file', notesPath])
   const release = JSON.parse(run('gh', ['release', 'view', tag, '--repo', repo, '--json', 'databaseId'], true))
   const assets = JSON.parse(run('gh', ['api', `repos/${repo}/releases/${release.databaseId}/assets`], true))
   for (const [name, digest] of digests) {
     if (assets.find(asset => asset.name === name)?.digest !== `sha256:${digest}`) throw new Error('GitHub digest mismatch. Release remains a draft; do not publish.')
   }
   run('gh', ['release', 'edit', tag, '--repo', repo, '--draft=false', '--latest'])
+  for (const arch of ['mac', 'mac-arm64']) rmSync(join(output, arch, 'Pi Desk.app'), { recursive: true })
   console.log(`Published https://github.com/${repo}/releases/tag/${tag}`)
 } catch (error) { console.error(error.message); process.exitCode = 1 }

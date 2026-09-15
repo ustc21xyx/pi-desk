@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, openSync, closeSync, renameSync, rmSync } from 'node:fs'
+import { existsSync, openSync, closeSync, renameSync, rmSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -31,7 +31,7 @@ try {
   console.log('正在安装依赖并构建…')
   run('npm', ['ci'])
   run('npm', ['run', 'pack:mac'])
-  const source = join(root, 'release', process.arch === 'arm64' ? 'mac-arm64' : 'mac', 'Pi Desk.app')
+  const source = join(root, 'release/build.noindex', process.arch === 'arm64' ? 'mac-arm64' : 'mac', 'Pi Desk.app')
   run('/usr/bin/codesign', ['--verify', '--deep', '--strict', source])
   const version = run('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleShortVersionString', join(source, 'Contents/Info.plist')], true)
   const target = '/Applications/Pi Desk.app'
@@ -41,24 +41,26 @@ try {
   run('/usr/bin/ditto', [source, stage])
   run('/usr/bin/codesign', ['--verify', '--deep', '--strict', stage])
   requireClosed()
-  const backupDir = join(root, 'release', 'installed-backup')
-  mkdirSync(backupDir, { recursive: true })
-  const backup = join(backupDir, `Pi Desk-before-update-${Date.now()}-${process.pid}.app`)
   const previous = `/Applications/.Pi Desk-previous-${process.pid}.app`
   if (existsSync(previous)) throw new Error('旧版暂存目录已存在，更新已停止。')
   const hadApp = existsSync(target)
   if (hadApp) {
-    run('/usr/bin/ditto', [target, backup])
     requireClosed()
     renameSync(target, previous)
   }
-  try { renameSync(stage, target); stage = undefined } catch (error) {
+  const stagePathForRollback = stage
+  try {
+    renameSync(stage, target); stage = undefined
+    run('/usr/bin/codesign', ['--verify', '--deep', '--strict', target])
+    run('/usr/bin/open', ['-a', target])
+  } catch (error) {
+    if (!stage && existsSync(target)) { renameSync(target, stagePathForRollback); stage = stagePathForRollback }
     if (hadApp) renameSync(previous, target)
     throw error
   }
   if (hadApp) rmSync(previous, { recursive: true })
-  console.log(`已安装 Pi Desk ${version}。${hadApp ? `旧版保存在 ${backup}` : ''}`)
-  run('/usr/bin/open', ['-a', target])
+  rmSync(source, { recursive: true })
+  console.log(`已安装 Pi Desk ${version}，已清理旧版与构建副本。`)
 } catch (error) {
   console.error(error.message)
   process.exitCode = 1

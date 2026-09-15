@@ -4,7 +4,7 @@
 
 Pi Desk 是一个 macOS 桌面客户端，通过官方 RPC 使用本机安装的 Pi。采用 Electron、React、TypeScript；不会附带另一份 Pi 内核，也不会复制模型认证信息。
 
-当前是 **0.2.14 开发预览**，目标是先打通真实本地工作流。代码经过类型检查与构建；依用户要求未进行界面/功能验收；历史会话命名已按用户授权调用指定模型执行。扩展与运行时行为仍需实际使用反馈。
+当前是 **0.2.15 开发预览**，目标是先打通真实本地工作流。代码经过类型检查与构建；依用户要求未进行界面/功能验收；历史会话命名已按用户授权调用指定模型执行。扩展与运行时行为仍需实际使用反馈。
 
 ## 已实现的首版范围
 
@@ -66,7 +66,7 @@ npm install -g @earendil-works/pi-coding-agent
 
 更新只读取固定公开仓库的 GitHub Releases，按 Mac 架构选择稳定版本，核对 GitHub 提供的 SHA-256、文件大小、应用身份、架构与代码签名后安装。当前使用 ad-hoc 签名，更新来源的信任依赖固定 GitHub 仓库及 HTTPS，不提供 Developer ID 身份认证或公证。不要把校验和当作独立的发布者签名。
 
-应用必须位于 `/Applications/Pi Desk.app` 或 `~/Applications/Pi Desk.app`，且该目录可写。更新助手等待应用正常退出后替换，替换或系统启动命令失败时恢复旧版；旧版备份留在同一目录的隐藏 `.Pi Desk-update-…-previous.app`。不修改 Pi 配置或会话。安装日志在 Pi Desk 私有数据目录的 `updates/download-*/install.log`；网络或权限失败可重试，旧版本不受下载失败影响。
+应用必须位于 `/Applications/Pi Desk.app` 或 `~/Applications/Pi Desk.app`，且该目录可写。更新助手等待应用正常退出后替换，替换或系统启动命令失败时恢复旧版；旧版仅在替换过程中临时保留，安装和系统启动命令成功后立即删除，不长期保存备份。不修改 Pi 配置或会话。安装日志在 Pi Desk 私有数据目录的 `updates/download-*/install.log`；网络或权限失败可重试，旧版本不受下载失败影响。
 
 首次从 0.2.10 及以前升级需安装一次新版 DMG，之后使用应用内更新。安装失败的恢复针对文件替换和系统启动命令，不涵盖新版运行后发生的功能错误。
 
@@ -80,7 +80,7 @@ npm install -g @earendil-works/pi-coding-agent
 npm run update
 ```
 
-脚本通过 `git pull --ff-only` 拉取当前分支的更新，安装锁定依赖、构建本机架构的应用，验证签名后安装到 `/Applications/Pi Desk.app` 并打开。旧版备份在 `release/installed-backup/`；Pi 的配置、认证和会话不变。存在未提交改动、分支分叉或应用尚未退出时会停止，不强制合并或结束任务。需要本机 Git、Node.js 和 npm。
+脚本通过 `git pull --ff-only` 拉取当前分支的更新，安装锁定依赖、构建本机架构的应用，验证签名后安装到 `/Applications/Pi Desk.app` 并打开。成功后删除旧版临时文件和构建应用副本；Pi 的配置、认证和会话不变。存在未提交改动、分支分叉或应用尚未退出时会停止，不强制合并或结束任务。需要本机 Git、Node.js 和 npm。
 
 另一台 Mac 首次使用：
 
@@ -116,7 +116,7 @@ npm run dist:mac:intel  # Intel Mac DMG
 node node_modules/electron/install.js
 ```
 
-产物在 `release/`。开发预览使用 ad-hoc 签名，不具备 Apple Developer ID 和公证；公开分发需要另行配置签名身份与公证。不同 Mac 的 CPU 架构需要对应的安装包，运行时最低系统要求以 Electron 为准。
+安装包产物在 `release/build.noindex/`，构建目录不参与 Spotlight 索引；发布成功后自动删除解包的应用副本，校验和留在 `release/`。开发预览使用 ad-hoc 签名，不具备 Apple Developer ID 和公证；公开分发需要另行配置签名身份与公证。不同 Mac 的 CPU 架构需要对应的安装包，运行时最低系统要求以 Electron 为准。
 
 ### 发布新版
 
