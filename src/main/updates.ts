@@ -60,24 +60,28 @@ async function request(url: string, signal: AbortSignal): Promise<Response> {
   return new Promise((resolve, reject) => {
     const client = net.request({ url: parsed.href, method: 'GET', session: isolated, redirect: 'manual', credentials: 'omit', useSessionCookies: false, cache: 'no-store', bypassCustomProtocolHandlers: true })
     let redirects = 0
-    const abort = () => { reject(signal.reason); client.abort() }
+    const cleanup = () => signal.removeEventListener('abort', abort)
+    const abort = () => { cleanup(); reject(signal.reason); client.abort() }
     signal.addEventListener('abort', abort, { once: true })
-    client.once('close', () => signal.removeEventListener('abort', abort))
-    client.on('error', reject)
+    // ClientRequest is a Writable: its close can precede the response. Keep
+    // cancellation attached until the response stream closes or the request fails.
+    client.on('error', error => { cleanup(); reject(error) })
     client.on('redirect', (_status, method, destination) => {
       try {
         updateURL(destination)
         if (method !== 'GET' || ++redirects > 4) throw new UpdateError('更新下载跳转异常，已停止请求。')
         client.followRedirect()
-      } catch (error) { reject(error); client.abort() }
+      } catch (error) { cleanup(); reject(error); client.abort() }
     })
     client.on('response', response => {
+      const stream = response as unknown as Readable
+      stream.once('close', cleanup)
       try {
         const headers = new Headers()
         for (const [key, value] of Object.entries(response.headers)) headers.set(key, Array.isArray(value) ? value.join(', ') : value)
-        const body = [204, 205, 304].includes(response.statusCode) ? null : Readable.toWeb(response as unknown as Readable) as ReadableStream<Uint8Array>
+        const body = [204, 205, 304].includes(response.statusCode) ? null : Readable.toWeb(stream) as ReadableStream<Uint8Array>
         resolve(new Response(body, { headers, status: response.statusCode, statusText: response.statusMessage }))
-      } catch (error) { reject(error); client.abort() }
+      } catch (error) { cleanup(); reject(error); client.abort() }
     })
     client.setHeader('User-Agent', 'Pi-Desk-Updater')
     client.setHeader('Accept', parsed.hostname === 'api.github.com' ? 'application/vnd.github+json' : 'application/octet-stream')
