@@ -86,13 +86,14 @@ export default function App() {
   const notify = (e: unknown) => setError(errorText(e))
   const reload = useCallback(async () => {
     const data = await window.desk.bootstrap(); setBoot(data)
+    if (data.navigateTo) { setActive({ kind: 'runtime', id: data.navigateTo }); const target = data.runtimes.find(r => r.id === data.navigateTo); if (target) setProject(target.cwd) }
     setRuntimes(previous => Object.fromEntries([...data.runtimes.map(r => [r.id, r] as const), ...Object.entries(previous)]))
   }, [])
   useEffect(() => {
     if (!window.desk) { setError('请通过 Pi Desk 桌面应用打开此界面。'); return }
     const off = window.desk.onRuntime(snapshot => { const before = latest.current[snapshot.id]; if (before) setEarlier(old => { if (old.key !== snapshot.id || !old.rows.length) return old; const keys = new Set([...snapshot.messages, ...old.rows].map(messageKey)); const evicted = before.messages.filter(m => !keys.has(messageKey(m))); return evicted.length ? { ...old, rows: [...old.rows, ...evicted] } : old }); latest.current = { ...latest.current, [snapshot.id]: snapshot }; setRuntimes(r => ({ ...r, [snapshot.id]: snapshot })) })
     const offNaming = window.desk.onNaming(status => { setBoot(b => b ? { ...b, namingStatus: status } : b); if (!status.running) void reload().catch(notify) })
-    const offNavigate = window.desk.onNavigate(id => { const r = latest.current[id]; if (r) { setActive({ kind: 'runtime', id }); setProject(r.cwd); setModal(null) } })
+    const offNavigate = window.desk.onNavigate(id => { const r = latest.current[id]; setActive({ kind: 'runtime', id }); if (r) setProject(r.cwd); setModal(null) })
     const offEditor = window.desk.onEditor(event => setDrafts(d => ({ ...d, [event.id]: event.text })))
     void reload().catch(notify)
     return () => { off(); offEditor(); offNaming(); offNavigate() }

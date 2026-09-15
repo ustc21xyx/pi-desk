@@ -55,7 +55,7 @@ export interface UpdateState {
   phase: 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'ready' | 'installing' | 'error';
   supported: boolean;
 }
-export interface Bootstrap { version: string; defaultModel?: DefaultModel; namingStatus: NamingStatus; preferences: Preferences; installations: Installation[]; sessions: SessionInfo[]; runtimes: RuntimeSnapshot[]; warnings: string[] }
+export interface Bootstrap { navigateTo?: string; version: string; defaultModel?: DefaultModel; namingStatus: NamingStatus; preferences: Preferences; installations: Installation[]; sessions: SessionInfo[]; runtimes: RuntimeSnapshot[]; warnings: string[] }
 export type RuntimeAction =
   | { type: 'prompt'; message: string; behavior?: 'steer' | 'followUp'; images?: { type: 'image'; data: string; mimeType: string }[] }
   | { type: 'clearQueue' | 'stop' | 'refresh' | 'compact' | 'close' | 'activate' }

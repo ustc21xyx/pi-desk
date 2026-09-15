@@ -23,7 +23,8 @@ let store: Storage
 let naming: NamingService
 let updates: AppUpdates
 let recovery: RecoveryStore
-const notifications = new DesktopNotifications(() => win, id => { if (!win) createWindow(); win?.show(); win?.focus(); send('desk:navigate', id) })
+let pendingNavigation: string | undefined
+const notifications = new DesktopNotifications(() => win, id => { pendingNavigation = id; if (!win) createWindow(); win?.show(); win?.focus(); send('desk:navigate', id) })
 let installingUpdate = false
 let activeRequests = 0
 const autoNamed = new Set<string>()
@@ -200,7 +201,7 @@ function registerIPC() {
     })().finally(() => { preparingSettings = undefined })
     return preparingSettings
   })
-  handle('bootstrap', async () => ({ version: app.getVersion(), defaultModel: await store.defaultModel(), preferences: store.preferences, namingStatus: naming.status, installations: await discover(store.preferences), ...await store.index(), runtimes: [...runtimes.values()].map(r => r.snapshot) }))
+  handle('bootstrap', async () => ({ navigateTo: pendingNavigation, version: app.getVersion(), defaultModel: await store.defaultModel(), preferences: store.preferences, namingStatus: naming.status, installations: await discover(store.preferences), ...await store.index(), runtimes: [...runtimes.values()].map(r => r.snapshot) }))
   handle('selectPath', async kind => {
     if (!['project', 'executable', 'node', 'agentDir', 'sessionDir', 'session'].includes(kind)) throw new Error('无效路径类型。')
     const directory = ['project', 'agentDir', 'sessionDir'].includes(kind)
@@ -241,6 +242,7 @@ function registerIPC() {
   handle('projectTrust', cwd => store.trust(text(cwd)))
   handle('viewing', id => {
     notifications.viewing = id === null ? null : text(id, 100)
+    if (notifications.viewing === pendingNavigation) pendingNavigation = undefined
     const runtime = id && runtimes.get(id)
     if (runtime && notifications.visible(id)) { runtime.snapshot.unread = undefined; runtime.emit() }
   })
