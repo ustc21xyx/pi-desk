@@ -76,7 +76,7 @@ function validateAction(input: unknown): RuntimeAction {
     return { type, message, behavior: a.behavior, images }
   }
   if (type === 'model') return { type, provider: text(a.provider, 300), modelId: text(a.modelId, 1000) }
-  if (type === 'thinking') { const level = text(a.level, 30); if (!['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(level)) throw new Error('推理档位无效。'); return { type, level } }
+  if (type === 'thinking') { const level = text(a.level, 30); if (!['default', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(level)) throw new Error('推理档位无效。'); return { type, level } }
   if (type === 'rename') return { type, name: text(a.name, 160) }
   if (type === 'dialog') return { type, id: text(a.id, 100), value: a.value === undefined ? undefined : text(a.value, 1_000_000), confirmed: a.confirmed === true, cancelled: a.cancelled === true }
   throw new Error('不支持的操作。')

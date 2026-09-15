@@ -205,10 +205,22 @@ export class PiRuntime {
     this.refreshPromise = this.doRefresh(history).finally(() => { this.refreshPromise = undefined })
     return this.refreshPromise
   }
-  private async refreshSettings() {
+  private async refreshSettings(full = false) {
     // An earlier refresh may have read state before a setting changed.
     if (this.refreshPromise) await this.refreshPromise
-    await this.refresh()
+    if (full) { await this.refresh(); return }
+    // Setting changes need model state and supported levels, not the full transcript/statistics/catalog.
+    const state = await this.request('get_state')
+    this.snapshot.model = modelInfo(state.model)
+    this.snapshot.thinking = String(state.thinkingLevel || '')
+    try {
+      const data = await this.request('get_available_thinking_levels')
+      this.snapshot.thinkingLevels = (data.levels || []).map(String).filter((level: string) => this.snapshot.model?.thinkingLevelMap?.[level] !== null)
+      this.snapshot.settingsErrors = { ...this.snapshot.settingsErrors, thinking: undefined }
+    } catch {
+      this.snapshot.settingsErrors = { ...this.snapshot.settingsErrors, thinking: '思考档位读取失败，请重试加载。' }
+    }
+    this.emit()
   }
   private setStats(data: JsonObject) {
     const nonnegative = (n: unknown): number | undefined => typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : undefined
@@ -290,15 +302,22 @@ export class PiRuntime {
       if (action.images?.length && !this.snapshot.model?.input.includes('image')) throw new Error('当前模型未声明支持图片，请先选择支持图片的模型。')
       await this.request('prompt', { message: action.message, images: action.images, streamingBehavior: action.behavior }, 300_000)
       // Slash commands can alter models without starting an agent run.
-      if (action.message.startsWith('/') && this.activity === 'idle') await this.refreshSettings()
+      if (action.message.startsWith('/') && this.activity === 'idle') await this.refreshSettings(!action.message.startsWith('/gateway-thinking '))
       return
     }
-    if (action.type === 'refresh') { await this.refreshSettings(); return }
+    if (action.type === 'refresh') { await this.refreshSettings(true); return }
     if (this.activity !== 'idle') throw new Error('请等待本轮结束后再修改会话设置。')
     if (action.type === 'model') await this.request('set_model', { provider: action.provider, modelId: action.modelId })
     if (action.type === 'thinking') {
       await this.refreshSettings()
-      if (!this.snapshot.thinkingLevels.includes(action.level)) throw new Error('当前模型不支持这个思考档位，请重新选择。')
+      if (action.level === 'default') {
+        if (!this.snapshot.commands.some(c => c.name === 'gateway-thinking')) throw new Error('当前 Pi 未提供上游默认选项，请重新选择思考设置。')
+        await this.request('prompt', { message: '/gateway-thinking default' })
+        await this.refreshSettings()
+        if (!this.snapshot.statuses['gateway-thinking']?.includes('上游默认')) throw new Error('当前模型未接受上游默认设置，请重新选择。')
+        return
+      }
+      if (this.snapshot.settingsErrors?.thinking || !this.snapshot.thinkingLevels.includes(action.level)) throw new Error('当前模型不支持这个思考档位，请重新选择。')
       if (this.snapshot.statuses['gateway-thinking'] && this.snapshot.commands.some(c => c.name === 'gateway-thinking')) {
         // Choosing an effort must leave upstream-default mode, even when Pi already holds that level.
         await this.request('prompt', { message: `/gateway-thinking ${action.level}` })

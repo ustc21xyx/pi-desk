@@ -37,7 +37,8 @@ export default function App() {
   const [preparation, setPreparation] = useState<{ cwd: string; id?: string; trust?: boolean; needsTrust?: boolean; error?: string }>({ cwd: '' })
   const preparationGeneration = useRef(0)
   const [catalog, setCatalog] = useState<ModelCatalog>({ models: [], source: 'recent' }), [catalogReading, setCatalogReading] = useState(false)
-  const [draftModel, setDraftModel] = useState<ModelInfo>()
+  const [draftModel, setDraftModel] = useState<ModelInfo>(), [draftThinking, setDraftThinking] = useState<string>()
+  const [probingThinking, setProbingThinking] = useState(false), [probedThinking, setProbedThinking] = useState<{ key: string; levels: string[] }>()
   const pendingSettings = useRef<{ model?: { provider: string; modelId: string }; thinking?: string }>({})
   const [earlier, setEarlier] = useState<{ key: string; rows: DisplayMessage[]; hasMore: boolean }>({ key: '', rows: [], hasMore: false }), [loadingOlder, setLoadingOlder] = useState(false), [historyMore, setHistoryMore] = useState(false)
   const [recovered, setRecovered] = useState<RecoveryPreview>(), [filePreview, setFilePreview] = useState<{ scope: string; path: string; version: number }>()
@@ -49,7 +50,7 @@ export default function App() {
   const [selectedDiff, setSelectedDiff] = useState<{ scope: string; id: string; path: string; diff: EditDiff }>()
   const [projectLimits, setProjectLimits] = useState<Record<string, number>>({})
   const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({})
-  const [modal, setModal] = useState<'settings' | 'models' | 'catalog' | 'thinking' | 'commands' | 'rename' | null>(null), [modelQuery, setModelQuery] = useState(''), [rename, setRename] = useState('')
+  const [modal, setModal] = useState<'settings' | 'models' | 'catalog' | 'thinking' | 'draft-thinking' | 'commands' | 'rename' | null>(null), [modelQuery, setModelQuery] = useState(''), [rename, setRename] = useState('')
   const [loadingSettings, setLoadingSettings] = useState<'models' | 'thinking' | null>(null), [savingSettings, setSavingSettings] = useState(false)
   const [decision, setDecision] = useState<Decision>(), [error, setError] = useState(''), [sending, setSending] = useState(false), [menu, setMenu] = useState(false)
   const [revision, setRevision] = useState<{ runtimeId: string; entryId: string; mode: 'edit' | 'fork'; draft: RevisionDraft; sourcePath?: string; applied?: boolean; error?: string }>()
@@ -79,7 +80,12 @@ export default function App() {
   const upstreamDefault = gatewayStatus.includes('上游默认')
   const budgetMode = gatewayStatus.includes('推理预算')
   const thinkingChoices = runtime?.thinkingLevels.filter(level => !(level === 'off' && (upstreamDefault || budgetMode) && !runtime.model?.reasoning)) || []
-  const thinkingLabel = draftModelMismatch ? '思考强度' : upstreamDefault ? '上游默认' : budgetMode ? '预算' : runtime?.model && !runtime.model.reasoning ? '无可调档位' : thinkingLabels[runtime?.thinking || ''] || '思考强度'
+  const runtimeThinkingLabel = draftModelMismatch ? '思考强度' : upstreamDefault ? '上游默认' : budgetMode ? '预算' : runtime?.model && !runtime.model.reasoning ? '无可调档位' : thinkingLabels[runtime?.thinking || ''] || '思考强度'
+  const thinkingLabel = active.kind === 'new' && draftThinking ? thinkingLabels[draftThinking] || '上游默认' : runtimeThinkingLabel
+  const draftCapabilityModel = draftModel || (runtime?.model?.id === displayedModel?.id && runtime?.model?.provider === displayedModel?.provider ? runtime?.model : undefined) || catalog.models.find(m => m.id === displayedModel?.id && m.provider === displayedModel?.provider)
+  const draftLevelsLive = !!runtime?.model && !draftModelMismatch && runtime.phase === 'idle' && !runtime.settingsErrors?.thinking
+  const draftThinkingKey = JSON.stringify([displayedModel?.provider, displayedModel?.id])
+  const draftThinkingChoices = draftLevelsLive ? thinkingChoices : probedThinking?.key === draftThinkingKey ? probedThinking.levels : Object.keys(thinkingLabels).filter(level => typeof draftCapabilityModel?.thinkingLevelMap?.[level] === 'string')
   const controlsLocked = busy || sending || savingSettings || !!loadingSettings
   const preferences = boot?.preferences
   const projects = [...new Set([...(preferences?.projects || []), ...(boot?.sessions || []).map(s => s.cwd)])]
@@ -101,7 +107,7 @@ export default function App() {
   }, [reload])
   useEffect(() => { latest.current = runtimes }, [runtimes])
   useEffect(() => { const timer = setTimeout(() => { try { localStorage.setItem('pi-desk-drafts', JSON.stringify(drafts)) } catch {} }, 350); return () => clearTimeout(timer) }, [drafts])
-  useEffect(() => { pendingSettings.current = {}; setDraftModel(undefined); setCatalog({ models: [], source: 'recent' }); setSettingsId('') }, [boot?.preferences.agentDir, boot?.preferences.executable, boot?.preferences.node])
+  useEffect(() => { pendingSettings.current = {}; setDraftModel(undefined); setDraftThinking(undefined); setProbedThinking(undefined); setCatalog({ models: [], source: 'recent' }); setSettingsId('') }, [boot?.preferences.agentDir, boot?.preferences.executable, boot?.preferences.node])
   useEffect(() => {
     if (active.kind !== 'new' || !boot) return
     let current = true
@@ -111,6 +117,13 @@ export default function App() {
     refresh(); window.addEventListener('focus', refresh)
     return () => { current = false; window.removeEventListener('focus', refresh) }
   }, [active, !!boot, boot?.preferences.agentDir, boot?.preferences.executable, boot?.preferences.node])
+  useEffect(() => {
+    if (!boot) return
+    let current = true
+    // Read the safe local catalog before a picker is opened; this never starts Pi.
+    void window.desk.modelCatalog().then(value => { if (current) setCatalog(value) }).catch(() => {})
+    return () => { current = false }
+  }, [!!boot, boot?.preferences.agentDir, boot?.preferences.executable, boot?.preferences.node])
   useEffect(() => { document.documentElement.dataset.theme = preferences?.theme || 'light' }, [preferences?.theme])
   useEffect(() => {
     const el = textRef.current
@@ -213,42 +226,56 @@ export default function App() {
         trust = result
       }
       const id = await window.desk.start({ cwd: targetProject, sessionPath: path, trust, prepared: !path })
+      await waitUntilReady(id)
+      if (!path && active.kind === 'new') {
+        const selected = pendingSettings.current, actual = latest.current[id]?.model
+        if (selected.model && (actual?.id !== selected.model.modelId || actual?.provider !== selected.model.provider)) await window.desk.action(id, { type: 'model', ...selected.model })
+        if (selected.thinking) await window.desk.action(id, { type: 'thinking', level: selected.thinking })
+      }
       if (!path) await window.desk.action(id, { type: 'activate' })
       setDrafts(d => ({ ...d, [id]: d[draftKey] || '' })); setAttachments(a => ({ ...a, [id]: a[draftKey] || [] }))
       setActive({ kind: 'runtime', id }); setMenu(false)
-      await waitUntilReady(id)
-      if (!path && active.kind === 'new') {
-        const selected = pendingSettings.current
-        if (selected.model) await window.desk.action(id, { type: 'model', ...selected.model })
-        if (selected.thinking) await window.desk.action(id, selected.thinking === 'default' ? { type: 'prompt', message: '/gateway-thinking default' } : { type: 'thinking', level: selected.thinking })
-      }
       return id
     } finally { starting.current = false }
   }
   async function openAgentSettings(kind: 'models' | 'thinking') {
-    if (controlsLocked) return
-    if (kind === 'models' && active.kind === 'new') {
-      setModal('catalog'); setError(''); setModelQuery(''); setCatalogReading(true)
+    if (busy || sending || savingSettings) return
+    setError(''); setModelQuery('')
+    if (active.kind === 'new') {
+      setModal(kind === 'models' ? 'catalog' : 'draft-thinking')
+      setCatalogReading(true)
       void window.desk.modelCatalog().then(setCatalog).catch(notify).finally(() => setCatalogReading(false))
-      // Opening the picker never waits for the Pi startup handshake.
+      // Global preparation runs in the background; browsing and choosing cached capabilities never await it.
       if (!project) void window.desk.prepareSettings().then(setSettingsId).catch(notify)
       return
     }
-    setLoadingSettings(kind); setError(''); setModelQuery('')
+    setModal(kind)
+    if (runtime?.phase === 'idle') return
+    if (loadingSettings) return
+    setLoadingSettings(kind)
+    try { await connect() } catch (e) { notify(e) } finally { setLoadingSettings(null) }
+  }
+  async function readDraftThinking() {
+    if (!displayedModel || probingThinking) return
+    const model = displayedModel, key = draftThinkingKey
+    setProbingThinking(true); setError('')
     try {
-      if (active.kind === 'new' && !project) {
-        const id = await window.desk.prepareSettings()
-        setSettingsId(id)
-        await waitUntilReady(id)
-        if (pendingSettings.current.model) await window.desk.action(id, { type: 'model', ...pendingSettings.current.model })
-        if (pendingSettings.current.thinking) await window.desk.action(id, pendingSettings.current.thinking === 'default' ? { type: 'prompt', message: '/gateway-thinking default' } : { type: 'thinking', level: pendingSettings.current.thinking })
-        await window.desk.action(id, { type: 'refresh' })
-        setModal(kind)
-      } else {
-        const id = await connect()
-        if (id) { await window.desk.action(id, { type: 'refresh' }); setActive({ kind: 'runtime', id }); setModal(kind) }
-      }
-    } catch (e) { notify(e) } finally { setLoadingSettings(null) }
+      const id = await window.desk.prepareSettings()
+      if (!project) setSettingsId(id)
+      await waitUntilReady(id)
+      const before = latest.current[id]?.model
+      if (before?.id !== model.id || before?.provider !== model.provider) await window.desk.action(id, { type: 'model', provider: model.provider, modelId: model.id })
+      const actual = latest.current[id]
+      if (actual?.model?.id !== model.id || actual.model.provider !== model.provider || actual.settingsErrors?.thinking) throw new Error('暂时未能读取这个模型的档位，请稍后重试。')
+      setProbedThinking({ key, levels: actual.thinkingLevels })
+    } catch (e) { notify(e) } finally { setProbingThinking(false) }
+  }
+  function chooseDraftThinking(level?: string) {
+    if (level && !displayedModel) return
+    if (level && displayedModel) pendingSettings.current = { model: { provider: displayedModel.provider, modelId: displayedModel.id }, thinking: level }
+    else { const { thinking: _thinking, ...selection } = pendingSettings.current; pendingSettings.current = selection }
+    if (level && draftCapabilityModel) setDraftModel(draftCapabilityModel)
+    setDraftThinking(level); setModal(null)
   }
   async function applyAgentSetting(action: RuntimeAction, close = true) {
     if (!runtime || savingSettings) return
@@ -256,9 +283,8 @@ export default function App() {
     try {
       await window.desk.action(runtime.id, action)
       if (runtime.settingsOnly || runtime.prepared) {
-        if (action.type === 'model') { pendingSettings.current = { model: { provider: action.provider, modelId: action.modelId } }; setDraftModel(runtime.models.find(m => m.provider === action.provider && m.id === action.modelId)) }
-        if (action.type === 'thinking' && runtime.model) pendingSettings.current = { model: { provider: runtime.model.provider, modelId: runtime.model.id }, thinking: action.level }
-        if (action.type === 'prompt' && action.message === '/gateway-thinking default' && runtime.model) pendingSettings.current = { model: { provider: runtime.model.provider, modelId: runtime.model.id }, thinking: 'default' }
+        if (action.type === 'model') { pendingSettings.current = { model: { provider: action.provider, modelId: action.modelId } }; setDraftModel(runtime.models.find(m => m.provider === action.provider && m.id === action.modelId)); setDraftThinking(undefined) }
+        if (action.type === 'thinking' && runtime.model) { pendingSettings.current = { model: { provider: runtime.model.provider, modelId: runtime.model.id }, thinking: action.level }; setDraftThinking(action.level) }
       }
       if (close) setModal(null)
     } catch (e) { notify(e) } finally { setSavingSettings(false) }
@@ -394,8 +420,8 @@ export default function App() {
           <FileReferenceInput key={draftKey} cwd={cwd} value={draft} onChange={updateDraft} inputRef={textRef} onSend={() => void send()} />
           {draft === '/' && commands.length > 0 && <div className="slash-menu">{commands.slice(0, 8).map(c => <button key={c.name} onClick={() => updateDraft(`/${c.name} `)}><strong>/{c.name}</strong><span>{c.description}</span></button>)}</div>}
           <div className="composer-toolbar"><div className="composer-controls"><button className="icon-button" title="添加图片" aria-label="添加图片" onClick={() => void addImages()} disabled={images.length >= 4}><ImagePlus size={18} /></button>{active.kind === 'new' && <ProjectPicker value={project} projects={projects} disabled={sending || savingSettings || !!loadingSettings} onChange={setProject} onBrowse={() => { void chooseProject() }} />}
-            <button className="model-button" disabled={!boot || controlsLocked} onClick={() => void openAgentSettings('models')} title={displayedModel ? `${displayedModel.provider}/${displayedModel.id}${active.kind === 'new' && !draftModel && !runtime?.model ? ' · Pi 默认配置，连接后确认' : ''}` : '由本机 Pi 选择默认模型；点击可切换'}>{loadingSettings === 'models' || (runtime?.phase === 'starting' && !runtime.settingsOnly && !runtime.prepared) ? <><LoaderCircle className="spin" size={12} />正在加载模型…</> : displayedModel?.name || (active.kind === 'new' ? boot ? 'Pi 默认模型' : '读取默认模型…' : '选择模型')}<ChevronDown size={12} /></button>
-            <button className="thinking-button" aria-label="设置思考强度" disabled={!boot || controlsLocked} onClick={() => void openAgentSettings('thinking')} title={gatewayStatus || '设置当前模型的思考强度'}>{loadingSettings === 'thinking' ? <><LoaderCircle className="spin" size={12} />正在加载…</> : thinkingLabel}<ChevronDown size={12} /></button>
+            <button className="model-button" disabled={!boot || busy || sending || savingSettings} onClick={() => void openAgentSettings('models')} title={displayedModel ? `${displayedModel.provider}/${displayedModel.id}${active.kind === 'new' && !draftModel && !runtime?.model ? ' · Pi 默认配置，连接后确认' : ''}` : '由本机 Pi 选择默认模型；点击可切换'}>{displayedModel?.name || (active.kind === 'new' ? boot ? 'Pi 默认模型' : '读取默认模型…' : '选择模型')}<ChevronDown size={12} /></button>
+            <button className="thinking-button" aria-label="设置思考强度" disabled={!boot || busy || sending || savingSettings} onClick={() => void openAgentSettings('thinking')} title={gatewayStatus || '设置当前模型的思考强度'}>{thinkingLabel}<ChevronDown size={12} /></button>
             {fastAvailable && !runtime?.settingsOnly && <button className="icon-button" disabled={busy || sending} title="切换 Fast（由本机扩展决定支持情况）" aria-label="切换 Fast" onClick={() => void perform({ type: 'prompt', message: '/fast' })}><Zap size={16} /></button>}
             {commands.length > 0 && !runtime?.settingsOnly && <button className="command-button" title="命令与 Skill" onClick={() => { setModelQuery(''); setModal('commands') }}>/</button>}
           </div><div className="send-controls">{busy && <select className="send-behavior" aria-label="运行中发送方式" value={sendBehavior} onChange={e => setSendBehavior(e.target.value as 'steer' | 'followUp')}><option value="steer">插话</option><option value="followUp">完成后发送</option></select>}{busy && <button className="stop-button" onClick={() => void perform({ type: 'stop' })} aria-label="停止并清空队列" title="停止并清空队列"><Square size={13} fill="currentColor" /></button>}<button className="send-button" disabled={sending || savingSettings || !!loadingSettings || (!draft.trim() && !images.length) || !boot} title={busy ? sendBehavior === 'steer' ? '插话：在 Pi 可接收时处理' : '当前任务完成后发送' : '发送'} aria-label={busy ? sendBehavior === 'steer' ? '插话：在 Pi 可接收时处理' : '当前任务完成后发送' : '发送'} onClick={() => void send()}>{sending ? <LoaderCircle className="spin" size={18} /> : <ArrowUp size={20} />}</button></div></div>
@@ -410,16 +436,28 @@ export default function App() {
     {modal === 'catalog' && <Modal title="选择模型" wide onClose={() => setModal(null)}>
       {error && <div className="picker-error" role="alert">{error}</div>}
       <div className="modal-search"><Search size={17} /><input autoFocus placeholder="搜索模型或服务商…" value={modelQuery} onChange={e => setModelQuery(e.target.value)} /></div>
-      <div className="picker-list">{matchedCatalog.map(m => <button key={`${m.provider}/${m.id}`} onClick={() => { pendingSettings.current = { model: { provider: m.provider, modelId: m.id } }; setDraftModel(m); setModal(null) }}><span><strong>{m.id}</strong><small>{m.provider}{m.name !== m.id ? ` · ${m.name}` : ''}</small></span><span className="model-meta">{m.contextWindow ? `${Math.round(m.contextWindow / 1000)}k` : ''}{displayedModel?.id === m.id && displayedModel.provider === m.provider && <Check size={16} />}</span></button>)}
+      <div className="picker-list">{matchedCatalog.map(m => <button key={`${m.provider}/${m.id}`} onClick={() => { pendingSettings.current = { model: { provider: m.provider, modelId: m.id } }; setDraftModel(m); setDraftThinking(undefined); setModal(null) }}><span><strong>{m.id}</strong><small>{m.provider}{m.name !== m.id ? ` · ${m.name}` : ''}</small></span><span className="model-meta">{m.contextWindow ? `${Math.round(m.contextWindow / 1000)}k` : ''}{displayedModel?.id === m.id && displayedModel.provider === m.provider && <Check size={16} />}</span></button>)}
         {!matchedCatalog.length && <p className="picker-empty">{catalogModels.length ? '没有匹配的模型' : catalogReading ? '正在读取本机模型记录…' : '还没有可用的模型缓存，正在等待 Pi 返回列表。你可以关闭此窗口，稍后再选。'}</p>}
       </div>
       <footer className="picker-footer">{catalogLive ? '本机 Pi 当前列表' : catalog.source === 'cache' ? '上次加载的模型 · 发送前会确认可用性' : '最近用过的模型 · 发送前会确认可用性'} · 模型 ID A–Z{!catalogLive && !['error', 'closed'].includes(runtime?.phase || '') && (project && preparation.needsTrust ? ' · 选择项目配置后加载完整列表' : ' · 完整列表后台加载中')}{runtime && ['error', 'closed'].includes(runtime.phase) && <button className="text-button" onClick={() => void openAgentSettings('models')}>重试加载</button>}</footer>
     </Modal>}
-    {(modal === 'models' || modal === 'commands') && runtime && <Modal title={modal === 'models' ? '选择模型' : '命令与 Skill'} onClose={() => { if (!savingSettings) setModal(null) }} wide>{error && <div className="picker-error" role="alert">{error}</div>}<div className="modal-search"><Search size={17} /><input autoFocus placeholder={modal === 'models' ? '搜索模型或服务商…' : '搜索命令…'} value={modelQuery} onChange={e => setModelQuery(e.target.value)} /></div><div className="picker-list">{modal === 'models' && (runtime.settingsErrors?.models || !runtime.models.length) && <div className="picker-empty"><p>{runtime.settingsErrors?.models || 'Pi 尚未返回可用模型，请检查本机模型与登录配置。'}</p><button className="secondary-button" disabled={savingSettings || busy} onClick={() => void applyAgentSetting({ type: 'refresh' }, false)}>重新加载</button></div>}{modal === 'models' && runtime.models.length > 0 && !runtime.models.some(m => matchesModel(m, modelQuery)) && <p className="picker-empty">没有匹配的模型</p>}{modal === 'models' ? runtime.models.filter(m => matchesModel(m, modelQuery)).map(m => <button key={`${m.provider}/${m.id}`} disabled={savingSettings || busy} onClick={() => void applyAgentSetting({ type: 'model', provider: m.provider, modelId: m.id })}><span><strong>{m.id}</strong><small>{m.provider}{m.name !== m.id ? ` · ${m.name}` : ''}</small></span><span className="model-meta">{m.contextWindow ? `${Math.round(m.contextWindow / 1000)}k` : ''}{runtime.model?.id === m.id && runtime.model.provider === m.provider && <Check size={16} />}</span></button>) : runtime.commands.filter(c => `${c.name} ${c.description}`.toLowerCase().includes(modelQuery.toLowerCase())).map(c => <button key={c.name} onClick={() => { updateDraft(`/${c.name} `); setModal(null); textRef.current?.focus() }}><span><strong>/{c.name}</strong><small>{c.description}</small></span><span className="source-badge">{c.source}</span></button>)}</div><footer className="picker-footer">{runtime.settingsOnly ? '来自本机 Pi 全局配置' : '来自当前 Pi 会话'}{modal === 'models' ? ' · 模型 ID A–Z · 含自动发现的模型' : ' · 选择后填入输入框'}</footer></Modal>}
-    {modal === 'thinking' && runtime && <Modal title="思考强度" onClose={() => { if (!savingSettings) setModal(null) }}>
-      {error && <div className="picker-error" role="alert">{error}</div>}<div className="thinking-description"><strong>{runtime.model?.name || '当前模型'}</strong><p>{upstreamDefault ? '当前由上游决定推理方式。只有该模型明确支持的档位才会列出。' : budgetMode ? '当前使用网关推理预算。可选择受支持的档位，或打开网关选项调整。' : runtime.model && !runtime.model.reasoning ? '本机 Pi 未提供可调档位，这不代表上游没有思考能力。' : '档位与映射来自本机 Pi，沿用已加载的自动发现结果和手动覆盖。设置对下一条消息生效。'}</p></div>
+    {modal === 'draft-thinking' && <Modal title="思考强度" onClose={() => setModal(null)}>
+      {error && <div className="picker-error" role="alert">{error}</div>}
+      <div className="thinking-description"><strong>{displayedModel?.name || 'Pi 默认模型'}</strong><p>先选择，发送前由本机 Pi 确认支持情况。{draftLevelsLive ? '档位来自当前 Pi。' : '已缓存的档位可立即选择。'}</p></div>
+      <div className="picker-list thinking-options">
+        <button onClick={() => chooseDraftThinking()}><span><strong>沿用 Pi 设置</strong><small>不额外指定思考强度</small></span>{!draftThinking && <Check size={15} />}</button>
+        {gatewayAvailable && <button disabled={!displayedModel} onClick={() => chooseDraftThinking('default')}><span><strong>上游默认</strong><small>由服务商决定推理方式</small></span>{draftThinking === 'default' && <Check size={15} />}</button>}
+        {draftThinkingChoices.map(level => <button key={level} onClick={() => chooseDraftThinking(level)}><span><strong>{thinkingLabels[level] || level}</strong><small>{draftCapabilityModel?.thinkingLevelMap?.[level] || level}</small></span>{draftThinking === level && <Check size={15} />}</button>)}
+        {!draftThinkingChoices.length && <p className="picker-empty">{catalogReading || runtime?.phase === 'starting' ? '正在后台读取档位，可以先关闭菜单继续输入。' : draftModelMismatch ? '这个模型暂无已确认的档位；可先沿用 Pi 设置，连接后再调整。' : '当前没有已确认的可选档位。'}</p>}
+      </div>
+      <footer className="picker-footer">{draftLevelsLive ? '本机 Pi 当前能力' : '本地能力记录 · 不推测模型档位'}<button className="text-button" disabled={!displayedModel || probingThinking} onClick={() => void readDraftThinking()}>{probingThinking ? '正在后台读取…' : '重新读取档位'}</button>{project && preparation.needsTrust && ' · 加载项目配置后可读取完整能力'}</footer>
+    </Modal>}
+    {(modal === 'models' || modal === 'thinking') && (!runtime || runtime.phase === 'starting') && <Modal title={modal === 'models' ? '选择模型' : '思考强度'} onClose={() => setModal(null)}><div className="picker-empty">{error || '正在后台连接本机 Pi；可以关闭菜单继续输入，连接完成后再选。'}</div></Modal>}
+    {(modal === 'models' || modal === 'commands') && runtime && runtime.phase !== 'starting' && <Modal title={modal === 'models' ? '选择模型' : '命令与 Skill'} onClose={() => setModal(null)} wide>{savingSettings && <div className="picker-empty" role="status">正在应用设置，可以关闭此窗口继续输入。</div>}{error && <div className="picker-error" role="alert">{error}</div>}<div className="modal-search"><Search size={17} /><input autoFocus placeholder={modal === 'models' ? '搜索模型或服务商…' : '搜索命令…'} value={modelQuery} onChange={e => setModelQuery(e.target.value)} /></div><div className="picker-list">{modal === 'models' && (runtime.settingsErrors?.models || !runtime.models.length) && <div className="picker-empty"><p>{runtime.settingsErrors?.models || 'Pi 尚未返回可用模型，请检查本机模型与登录配置。'}</p><button className="secondary-button" disabled={savingSettings || busy} onClick={() => void applyAgentSetting({ type: 'refresh' }, false)}>重新加载</button></div>}{modal === 'models' && runtime.models.length > 0 && !runtime.models.some(m => matchesModel(m, modelQuery)) && <p className="picker-empty">没有匹配的模型</p>}{modal === 'models' ? runtime.models.filter(m => matchesModel(m, modelQuery)).map(m => <button key={`${m.provider}/${m.id}`} disabled={savingSettings || busy} onClick={() => void applyAgentSetting({ type: 'model', provider: m.provider, modelId: m.id })}><span><strong>{m.id}</strong><small>{m.provider}{m.name !== m.id ? ` · ${m.name}` : ''}</small></span><span className="model-meta">{m.contextWindow ? `${Math.round(m.contextWindow / 1000)}k` : ''}{runtime.model?.id === m.id && runtime.model.provider === m.provider && <Check size={16} />}</span></button>) : runtime.commands.filter(c => `${c.name} ${c.description}`.toLowerCase().includes(modelQuery.toLowerCase())).map(c => <button key={c.name} onClick={() => { updateDraft(`/${c.name} `); setModal(null); textRef.current?.focus() }}><span><strong>/{c.name}</strong><small>{c.description}</small></span><span className="source-badge">{c.source}</span></button>)}</div><footer className="picker-footer">{runtime.settingsOnly ? '来自本机 Pi 全局配置' : '来自当前 Pi 会话'}{modal === 'models' ? ' · 模型 ID A–Z · 含自动发现的模型' : ' · 选择后填入输入框'}</footer></Modal>}
+    {modal === 'thinking' && runtime && runtime.phase !== 'starting' && <Modal title="思考强度" onClose={() => setModal(null)}>
+      {savingSettings && <div className="picker-empty" role="status">正在应用设置，可以关闭此窗口继续输入。</div>}{error && <div className="picker-error" role="alert">{error}</div>}<div className="thinking-description"><strong>{runtime.model?.name || '当前模型'}</strong><p>{upstreamDefault ? '当前由上游决定推理方式。只有该模型明确支持的档位才会列出。' : budgetMode ? '当前使用网关推理预算。可选择受支持的档位，或打开网关选项调整。' : runtime.model && !runtime.model.reasoning ? '本机 Pi 未提供可调档位，这不代表上游没有思考能力。' : '档位与映射来自本机 Pi，沿用已加载的自动发现结果和手动覆盖。设置对下一条消息生效。'}</p></div>
       {runtime.settingsErrors?.thinking ? <div className="picker-empty"><p>{runtime.settingsErrors.thinking}</p><button className="secondary-button" disabled={savingSettings || busy} onClick={() => void applyAgentSetting({ type: 'refresh' }, false)}>重新加载</button></div> : <div className="picker-list thinking-options">
-        {gatewayAvailable && <button disabled={savingSettings || busy} onClick={() => void applyAgentSetting({ type: 'prompt', message: '/gateway-thinking default' })}><span><strong>上游默认</strong><small>由服务商决定推理方式</small></span>{upstreamDefault && <Check size={15} />}</button>}
+        {gatewayAvailable && <button disabled={savingSettings || busy} onClick={() => void applyAgentSetting({ type: 'thinking', level: 'default' })}><span><strong>上游默认</strong><small>由服务商决定推理方式</small></span>{upstreamDefault && <Check size={15} />}</button>}
         {thinkingChoices.map(level => <button key={level} disabled={savingSettings || busy || (thinkingChoices.length === 1 && !runtime.model?.reasoning)} onClick={() => void applyAgentSetting({ type: 'thinking', level })}><span><strong>{thinkingLabels[level] || level}</strong><small>{runtime.model?.thinkingLevelMap?.[level] && runtime.model.thinkingLevelMap[level] !== level ? `${level} → ${runtime.model.thinkingLevelMap[level]}` : level}</small></span>{!upstreamDefault && !budgetMode && runtime.thinking === level && <Check size={15} />}</button>)}
         {!thinkingChoices.length && !upstreamDefault && !budgetMode && <p className="picker-empty">当前模型未提供可选档位。</p>}
       </div>}

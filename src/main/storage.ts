@@ -1,4 +1,5 @@
 import { createReadStream, promises as fs } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
@@ -48,8 +49,13 @@ export class Storage {
   }
   async catalogScope() {
     const root = await this.root()
-    const stamps = await Promise.all(['settings.json', 'models.json', 'auth.json', 'gateway-models.json'].map(name => fs.stat(join(root, name)).then(s => s.mtimeMs).catch(() => 0)))
-    return JSON.stringify([root, this.preferences.executable, this.preferences.node, ...stamps])
+    const stamps = await Promise.all(['models.json', 'auth.json', 'gateway-models.json'].map(name => fs.stat(join(root, name)).then(s => s.mtimeMs).catch(() => 0)))
+    const settings = await jsonFile(join(root, 'settings.json'))
+    // Pi persists the selected model/effort here. Those changes do not invalidate model capabilities.
+    // Hash the remaining settings instead of storing private configuration in the catalog key.
+    const relevant = Object.fromEntries(Object.keys(settings).sort().filter(key => !['defaultProvider', 'defaultModel', 'defaultThinkingLevel'].includes(key)).map(key => [key, settings[key]]))
+    const settingsDigest = createHash('sha256').update(JSON.stringify(relevant)).digest('hex')
+    return JSON.stringify([root, this.preferences.executable, this.preferences.node, settingsDigest, ...stamps])
   }
   async cacheModels(models: ModelInfo[], scope: string) {
     const safe = models.map(modelInfo).filter((m): m is ModelInfo => !!m).sort(compareModels)
