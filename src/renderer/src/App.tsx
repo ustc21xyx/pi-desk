@@ -310,7 +310,7 @@ export default function App() {
           return <div className="project-group" key={p}>
             <div className="project-heading">
               <button className={`project-row ${cwd === p ? 'current' : ''}`} onClick={() => setCollapsedProjects(old => ({ ...old, [p]: !old[p] }))} title={p} aria-expanded={!collapsed} aria-controls={listId}>
-                <Folder size={15} /><span>{nameOf(p)}</span>{collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                <Folder size={15} /><span>{nameOf(p)}</span><ChevronRight className={`project-chevron ${collapsed ? '' : 'expanded'}`} size={12} />
               </button>
               <button className="icon-button project-new-chat" title="新建会话" aria-label={`在 ${nameOf(p)} 中新建会话`} onClick={() => {
                 setProject(p); setActive({ kind: 'new' }); setArchivedView(false); setError(''); setMenu(false)
@@ -318,13 +318,13 @@ export default function App() {
                 textRef.current?.focus()
               }}><SquarePen size={15} /></button>
             </div>
-            <div id={listId} hidden={collapsed}>
+            <div id={listId} className={`project-sessions-collapse ${collapsed ? 'collapsed' : ''}`} inert={collapsed} aria-hidden={collapsed}><div className="project-sessions-inner">
               {sessions.slice(0, limit).map(sessionRow)}
               <div className="session-disclosure">
                 {sessions.length > limit && <button className="more-sessions" onClick={() => setLimit(limit + 5)}>显示更多</button>}
                 {limit > 5 && <button className="more-sessions" onClick={() => setLimit(5)}>收起</button>}
               </div>
-            </div>
+            </div></div>
           </div>
         })}
         {!boot && <div className="sidebar-empty">正在读取本机工作区…</div>}
