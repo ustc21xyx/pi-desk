@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { app, session, type Session } from 'electron'
 import { promises as fs, createReadStream } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
@@ -10,6 +10,14 @@ const exec = promisify(execFile)
 const repository = 'ustc21xyx/pi-desk'
 const maxDownload = 512 * 1024 * 1024
 type Asset = { name: string; url: string; size: number; digest: string }
+let updateNetwork: Promise<Session> | undefined
+function network() {
+  return updateNetwork ||= (async () => {
+    const isolated = session.fromPartition('pi-desk-updates', { cache: false })
+    await isolated.setProxy({ mode: 'system' })
+    return isolated
+  })().catch(error => { updateNetwork = undefined; throw error })
+}
 function newer(candidate: string, current: string) {
   const a = candidate.split('.').map(Number), b = current.split('.').map(Number)
   for (let i = 0; i < 3; i++) { if (a[i] !== b[i]) return a[i] > b[i] }
@@ -25,7 +33,7 @@ async function request(url: string, signal: AbortSignal): Promise<Response> {
   for (let redirects = 0; redirects < 5; redirects++) {
     const parsed = new URL(url)
     if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.port || !['api.github.com', 'github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com'].includes(parsed.hostname)) throw new Error('更新地址无效。')
-    const response = await fetch(url, { redirect: 'manual', signal, headers: { 'User-Agent': 'Pi-Desk-Updater', Accept: parsed.hostname === 'api.github.com' ? 'application/vnd.github+json' : 'application/octet-stream' } })
+    const response = await (await network()).fetch(url, { redirect: 'manual', signal, credentials: 'omit', cache: 'no-store', bypassCustomProtocolHandlers: true, headers: { 'User-Agent': 'Pi-Desk-Updater', Accept: parsed.hostname === 'api.github.com' ? 'application/vnd.github+json' : 'application/octet-stream' } })
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       await response.body?.cancel()
       const next = response.headers.get('location')
@@ -44,13 +52,15 @@ export class AppUpdates {
   private download?: string
   private workspace?: string
   private working = false
+  private downloadController?: AbortController
+  private downloadCancelled = false
   constructor(private publish: (state: UpdateState) => void) {}
   private emit(patch: Partial<UpdateState>) { this.state = { ...this.state, ...patch }; this.publish({ ...this.state }); return this.state }
   private error(error: unknown) { return this.emit({ phase: 'error', error: error instanceof Error && error.message.includes('。') ? error.message : '更新未完成，请检查网络或稍后重试。' }) }
   async check() {
     if (this.working || this.state.phase === 'installing') return this.state
     this.working = true
-    this.emit({ phase: 'checking', error: undefined, version: undefined, notes: undefined, progress: undefined })
+    this.emit({ phase: 'checking', error: undefined, version: undefined, notes: undefined, progress: undefined, transferStage: undefined, receivedBytes: undefined, totalBytes: undefined, bytesPerSecond: undefined })
     this.asset = undefined; this.download = undefined
     try {
       const response = await request(`https://api.github.com/repos/${repository}/releases/latest`, AbortSignal.timeout(25_000))
@@ -77,30 +87,60 @@ export class AppUpdates {
     if (!this.state.supported) return this.error(new Error('请在已安装的 macOS 版 Pi Desk 中更新。'))
     if (!this.asset) return this.error(new Error('请先检查更新。'))
     this.working = true
-    this.emit({ phase: 'downloading', error: undefined, progress: 0 })
+    this.downloadCancelled = false
+    const controller = new AbortController()
+    this.downloadController = controller
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(10 * 60_000)])
+    let size = 0, lastReceivedAt = Date.now(), sampleAt = Date.now(), sampleSize = 0, emittedAt = 0
+    this.emit({ phase: 'downloading', error: undefined, progress: 0, transferStage: 'connecting', receivedBytes: 0, totalBytes: this.asset.size, bytesPerSecond: 0 })
+    const timer = setInterval(() => {
+      const now = Date.now()
+      if (now - lastReceivedAt >= 45_000) controller.abort(new Error('下载连接长时间没有收到数据，请检查系统代理或重试。'))
+      if (this.state.transferStage === 'receiving') this.emit({ receivedBytes: size, bytesPerSecond: Math.round((size - sampleSize) * 1000 / Math.max(1, now - sampleAt)) })
+      sampleAt = now; sampleSize = size
+    }, 1000)
     try {
       if (this.workspace) await fs.rm(this.workspace, { recursive: true, force: true })
       const directory = join(app.getPath('userData'), 'updates')
       await fs.mkdir(directory, { recursive: true, mode: 0o700 })
       this.workspace = await fs.mkdtemp(join(directory, 'download-'))
       const path = join(this.workspace, this.asset.name)
-      const response = await request(this.asset.url, AbortSignal.timeout(10 * 60_000))
+      const response = await request(this.asset.url, signal)
       if (!response.ok || !response.body) throw new Error('下载未完成，请稍后重试。')
+      this.emit({ transferStage: 'receiving' })
       const file = await fs.open(path, 'wx', 0o600), hash = createHash('sha256')
-      let size = 0, progress = -1
       try {
         for await (const chunk of response.body as any as AsyncIterable<Uint8Array>) {
+          signal.throwIfAborted()
           size += chunk.length
           if (size > this.asset.size) throw new Error('安装包大小不匹配，已停止下载。')
           await file.writeFile(chunk); hash.update(chunk)
-          const next = Math.floor(size * 100 / this.asset.size)
-          if (next !== progress) { progress = next; this.emit({ progress }) }
+          lastReceivedAt = Date.now()
+          if (lastReceivedAt - emittedAt >= 250) { emittedAt = lastReceivedAt; this.emit({ progress: size * 100 / this.asset.size, receivedBytes: size }) }
         }
       } finally { await file.close() }
+      signal.throwIfAborted()
+      clearInterval(timer)
+      this.emit({ transferStage: 'verifying', receivedBytes: size })
       if (size !== this.asset.size || hash.digest('hex') !== this.asset.digest) throw new Error('安装包校验失败，请重新下载。')
       this.download = path
-      return this.emit({ phase: 'ready', progress: 100 })
-    } catch (error) { this.download = undefined; return this.error(error) } finally { this.working = false }
+      return this.emit({ phase: 'ready', progress: 100, transferStage: undefined, bytesPerSecond: undefined })
+    } catch (error) {
+      const failure = signal.aborted && signal.reason instanceof Error ? signal.reason : error
+      clearInterval(timer)
+      controller.abort()
+      this.download = undefined
+      if (this.workspace) await fs.rm(this.workspace, { recursive: true, force: true }).catch(() => {})
+      if (this.downloadCancelled) return this.emit({ phase: 'available', error: undefined, progress: undefined, transferStage: undefined, receivedBytes: undefined, bytesPerSecond: undefined })
+      return this.error(failure)
+    } finally { clearInterval(timer); this.downloadController = undefined; this.working = false }
+  }
+  cancelDownload() {
+    if (this.state.phase === 'downloading' && this.downloadController) {
+      this.downloadCancelled = true
+      this.downloadController.abort()
+    }
+    return this.state
   }
   async stage() {
     if (this.working || this.state.phase !== 'ready' || !this.download || !this.asset || !this.workspace) throw new Error('请先下载更新。')

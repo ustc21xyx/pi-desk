@@ -3,6 +3,8 @@ import { Download, LoaderCircle, RefreshCw } from 'lucide-react'
 import type { UpdateState } from '../../shared/contracts'
 import { errorText } from './components'
 
+const bytes = (value: number) => value >= 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MB` : `${Math.round(value / 1024)} KB`
+
 export function UpdateSection({ settingsDirty }: { settingsDirty: boolean }) {
   const [state, setState] = useState<UpdateState>()
   const [error, setError] = useState('')
@@ -13,25 +15,27 @@ export function UpdateSection({ settingsDirty }: { settingsDirty: boolean }) {
     void window.desk.updateState().then(value => { if (active && !received) setState(value) }).catch(e => { if (active) setError(errorText(e)) })
     return () => { active = false; off() }
   }, [])
-  async function perform(action: 'check' | 'download' | 'install') {
+  async function perform(action: 'check' | 'download' | 'install' | 'cancel') {
     setRequesting(true); setError('')
     try {
       if (action === 'install') await window.desk.installUpdate()
+      else if (action === 'cancel') await window.desk.cancelUpdateDownload()
       else setState(await (action === 'check' ? window.desk.checkUpdate() : window.desk.downloadUpdate()))
     } catch (e) { setError(errorText(e)) } finally { setRequesting(false) }
   }
   const busy = requesting || ['checking', 'downloading', 'installing'].includes(state?.phase || '')
-  const title = !state ? '正在读取版本…' : state.phase === 'current' ? '已是最新版本' : state.phase === 'checking' ? '正在检查更新…' : state.phase === 'downloading' ? `正在下载 · ${state.progress || 0}%` : state.phase === 'installing' ? '正在准备重启安装…' : state.phase === 'ready' ? `${state.version} 已下载` : state.version ? `发现新版本 ${state.version}` : `当前版本 ${state.currentVersion}`
+  const percent = (state?.progress || 0) < 1 ? (state?.progress || 0).toFixed(1) : Math.floor(state?.progress || 0)
+  const title = !state ? '正在读取版本…' : state.phase === 'current' ? '已是最新版本' : state.phase === 'checking' ? '正在检查更新…' : state.phase === 'downloading' ? state.transferStage === 'connecting' ? '正在连接下载服务器…' : state.transferStage === 'verifying' ? '正在校验安装包…' : `正在下载 · ${percent}%` : state.phase === 'installing' ? '正在准备重启安装…' : state.phase === 'ready' ? `${state.version} 已下载` : state.version ? `发现新版本 ${state.version}` : `当前版本 ${state.currentVersion}`
   return <section className="setting-section update-section">
     <h4>应用更新</h4>
     <div className="update-row"><span role="status">{title}</span><button className="secondary-button" disabled={!state || busy} onClick={() => void perform('check')}>{state?.phase === 'checking' ? <LoaderCircle size={13} className="spin" /> : <RefreshCw size={13} />}检查更新</button></div>
-    {state?.phase === 'downloading' && <progress aria-label="更新下载进度" max={100} value={state.progress || 0} />}
-    <p className="setting-description">从 GitHub 下载更新，保留配置和会话。任务结束后可重启安装。</p>
+    {state?.phase === 'downloading' && <><progress aria-label="更新下载进度" max={100} value={state.transferStage === 'connecting' ? undefined : state.progress || 0} />{state.transferStage === 'receiving' && <p className="setting-description">{bytes(state.receivedBytes || 0)} / {bytes(state.totalBytes || 0)} · {state.bytesPerSecond ? `${bytes(state.bytesPerSecond)}/s` : '等待数据…'}</p>}</>}
+    <p className="setting-description">从 GitHub 下载更新，跟随系统网络代理。保留配置和会话，任务结束后可重启安装。</p>
     {state && !state.supported && <p className="setting-description">请在已安装的 macOS 应用中下载并安装更新。</p>}
     {state?.notes && <details className="update-notes"><summary>版本说明</summary><p>{state.notes}</p></details>}
     {(error || state?.error) && <p className="update-error" role="alert">{error || state?.error}</p>}
     {state?.version && state.supported && <div className="update-actions">
-      {state.phase === 'ready' ? <button className="primary-button" disabled={busy || settingsDirty} onClick={() => void perform('install')}>重启并安装</button> : <button className="primary-button" disabled={busy} onClick={() => void perform('download')}><Download size={14} />{state.phase === 'downloading' ? '正在下载…' : '下载更新'}</button>}
+      {state.phase === 'ready' ? <button className="primary-button" disabled={busy || settingsDirty} onClick={() => void perform('install')}>重启并安装</button> : state.phase === 'downloading' ? <button className="secondary-button" onClick={() => void perform('cancel')}>取消下载</button> : <button className="primary-button" disabled={busy} onClick={() => void perform('download')}><Download size={14} />下载更新</button>}
       {state.phase === 'ready' && settingsDirty && <small>请先保存本页设置。</small>}
     </div>}
   </section>

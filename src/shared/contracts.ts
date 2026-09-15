@@ -44,6 +44,7 @@ export interface RuntimeSnapshot {
 export interface NamingStatus { running: boolean; total: number; completed: number; failed: number; skipped: number; error?: string }
 export interface ModelCatalog { models: ModelInfo[]; source: 'cache' | 'recent'; updatedAt?: number }
 export interface UpdateState {
+  transferStage?: 'connecting' | 'receiving' | 'verifying'; receivedBytes?: number; totalBytes?: number; bytesPerSecond?: number;
   currentVersion: string; version?: string; notes?: string; progress?: number; error?: string;
   phase: 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'ready' | 'installing' | 'error';
   supported: boolean;
@@ -65,6 +66,7 @@ export interface DeskAPI {
   updateState(): Promise<UpdateState>
   checkUpdate(): Promise<UpdateState>
   downloadUpdate(): Promise<UpdateState>
+  cancelUpdateDownload(): Promise<UpdateState>
   installUpdate(): Promise<void>
   onUpdate(listener: (state: UpdateState) => void): () => void
   revisionDraft(id: string, entryId: string): Promise<RevisionDraft>

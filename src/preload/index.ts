@@ -4,6 +4,7 @@ const invoke = (name: string, ...args: unknown[]) => ipcRenderer.invoke(`desk:${
 const api: DeskAPI = {
   updateState: () => invoke('updateState'), checkUpdate: () => invoke('checkUpdate'),
   downloadUpdate: () => invoke('downloadUpdate'), installUpdate: () => invoke('installUpdate'),
+  cancelUpdateDownload: () => invoke('cancelUpdateDownload'),
   onUpdate: listener => { const fn = (_event: unknown, state: any) => listener(state); ipcRenderer.on('desk:update', fn); return () => ipcRenderer.removeListener('desk:update', fn) },
   revisionDraft: (id, entryId) => invoke('revisionDraft', id, entryId),
   revise: (id, entryId, mode, input) => invoke('revise', id, entryId, mode, input),

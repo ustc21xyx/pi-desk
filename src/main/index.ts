@@ -127,6 +127,7 @@ function registerIPC() {
   handle('updateState', () => updates.state)
   handle('checkUpdate', () => updates.check())
   handle('downloadUpdate', () => updates.fetchUpdate())
+  handle('cancelUpdateDownload', () => updates.cancelDownload())
   handle('installUpdate', async () => {
     if (updates.state.phase !== 'ready') throw new Error('请先下载更新。')
     const busy = () => activeRequests > 1 || naming.busy || [...runtimes.values()].some(r => r.busy)
