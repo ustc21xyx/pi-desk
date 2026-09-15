@@ -13,6 +13,7 @@ export interface DisplayBlock {
   mimeType?: string; data?: string; id?: string; name?: string; arguments?: string
 }
 export interface DisplayMessage {
+  editDiff?: EditDiff;
   id: string; entryId?: string; role: string; timestamp?: number; completedAt?: number; stopReason?: string; blocks: DisplayBlock[]; toolCallId?: string;
   toolName?: string; isError?: boolean; error?: string; streaming?: boolean
 }
@@ -24,7 +25,8 @@ export interface ExtensionDialog {
   id: string; method: 'select' | 'confirm' | 'input' | 'editor'; title: string;
   message?: string; options?: string[]; placeholder?: string; prefill?: string; expiresAt?: number
 }
-export interface ToolActivity { id: string; name: string; args: string; output: string; status: 'running' | 'done' | 'error' }
+export interface EditDiff { text: string; format: 'unified' | 'pi'; truncated: boolean }
+export interface ToolActivity { id: string; name: string; args: string; output: string; status: 'running' | 'done' | 'error'; editDiff?: EditDiff }
 export interface RuntimeSnapshot {
   settingsOnly?: boolean;
   prepared?: boolean;

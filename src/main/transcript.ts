@@ -1,4 +1,15 @@
-import type { DisplayBlock, DisplayMessage, JsonObject, ModelInfo } from '../shared/contracts'
+import type { DisplayBlock, DisplayMessage, EditDiff, JsonObject, ModelInfo } from '../shared/contracts'
+
+// Preserve only Pi's actual edit result, not the entire extension details object.
+export function editDiff(result: JsonObject | undefined): EditDiff | undefined {
+  if (!result || result.isError) return undefined
+  const details = result.details
+  const patch = typeof details?.patch === 'string' && details.patch.length > 0 ? details.patch : undefined
+  const text = patch || (typeof details?.diff === 'string' ? details.diff : '')
+  if (!text) return undefined
+  const prefix = text.slice(0, 150_000), lines = prefix.split('\n')
+  return { text: lines.slice(0, 1500).join('\n'), format: patch ? 'unified' : 'pi', truncated: text.length > prefix.length || lines.length > 1500 }
+}
 
 export const clipped = (value: unknown, limit = 150_000): string => {
   const text = typeof value === 'string' ? value : JSON.stringify(value ?? '', null, 2)
@@ -13,7 +24,7 @@ export function displayBlock(b: JsonObject): DisplayBlock | null {
 }
 export function displayMessage(m: JsonObject, id: string): DisplayMessage {
   const content = Array.isArray(m?.content) ? m.content : [{ type: 'text', text: m?.content || m?.output || '' }]
-  return { id, timestamp: typeof m?.timestamp === 'number' ? m.timestamp : undefined, stopReason: m?.stopReason, role: String(m?.role || 'custom'), blocks: content.map(displayBlock).filter((b): b is DisplayBlock => b !== null), toolCallId: m?.toolCallId, toolName: m?.toolName, isError: m?.isError, error: m?.errorMessage ? clipped(m.errorMessage, 3000) : undefined }
+  return { id, timestamp: typeof m?.timestamp === 'number' ? m.timestamp : undefined, stopReason: m?.stopReason, role: String(m?.role || 'custom'), blocks: content.map(displayBlock).filter((b): b is DisplayBlock => b !== null), toolCallId: m?.toolCallId, toolName: m?.toolName, isError: m?.isError, editDiff: m?.role === 'toolResult' && m?.toolName === 'edit' ? editDiff(m) : undefined, error: m?.errorMessage ? clipped(m.errorMessage, 3000) : undefined }
 }
 export function modelInfo(m: JsonObject | undefined): ModelInfo | undefined {
   if (!m || typeof m.id !== 'string' || typeof m.provider !== 'string') return undefined

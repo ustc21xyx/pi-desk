@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { dirname, delimiter } from 'node:path'
 import type { Installation, RuntimeSnapshot, RuntimeAction, JsonObject, ExtensionDialog, DisplayBlock, RevisionDraft } from '../shared/contracts'
 import { invocation, searchPaths } from './discovery'
-import { activeBranch, clipped, compareModels, displayMessage, modelInfo } from './transcript'
+import { activeBranch, clipped, compareModels, displayMessage, editDiff, modelInfo } from './transcript'
 
 type Pending = { resolve: (data: JsonObject) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }
 export class PiRuntime {
@@ -157,10 +157,13 @@ export class PiRuntime {
     }
     if (event.type.startsWith('tool_execution_')) {
       const id = String(event.toolCallId)
-      const tool = this.snapshot.tools[id] || { id, name: String(event.toolName), args: clipped(event.args), output: '', status: 'running' as const }
+      const tool: RuntimeSnapshot['tools'][string] = this.snapshot.tools[id] || { id, name: String(event.toolName), args: clipped(event.args), output: '', status: 'running' }
       const result = event.result || event.partialResult
       if (result) tool.output = clipped((result.content || []).filter((b: JsonObject) => b.type === 'text').map((b: JsonObject) => b.text).join('\n'))
-      if (event.type === 'tool_execution_end') tool.status = event.isError ? 'error' : 'done'
+      if (event.type === 'tool_execution_end') {
+        tool.status = event.isError ? 'error' : 'done'
+        if (tool.name === 'edit') tool.editDiff = event.isError ? undefined : editDiff(result)
+      }
       this.snapshot.tools[id] = tool
     }
     this.emit()

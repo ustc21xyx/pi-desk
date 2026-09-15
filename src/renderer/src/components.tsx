@@ -5,7 +5,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkCjkFriendly from 'remark-cjk-friendly/parseOnly'
 import remarkCjkFriendlyGfmStrikethrough from 'remark-cjk-friendly-gfm-strikethrough/parseOnly'
-import type { DisplayMessage, ExtensionDialog, FileItem, RuntimeSnapshot } from '../../shared/contracts'
+import type { DisplayMessage, EditDiff, ExtensionDialog, FileItem, RuntimeSnapshot } from '../../shared/contracts'
 
 export const nameOf = (path: string) => path.split('/').filter(Boolean).at(-1) || path
 export const clean = (text: string) => text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '')
@@ -38,7 +38,7 @@ function duration(ms: number) {
 function toolPreview(args: string) {
   try { const value = JSON.parse(args); return clean(String(value.command || value.cmd || value.path || value.file_path || '')).replace(/\s+/g, ' ').slice(0, 180) } catch { return '' }
 }
-export function Transcript({ messages, runtime, onRevise, revisionDisabled }: { messages: DisplayMessage[]; runtime?: RuntimeSnapshot; onRevise: (message: DisplayMessage, mode: 'edit' | 'fork') => void; revisionDisabled: boolean }) {
+export function Transcript({ messages, runtime, onRevise, revisionDisabled, onShowDiff, selectedDiffId }: { messages: DisplayMessage[]; runtime?: RuntimeSnapshot; onRevise: (message: DisplayMessage, mode: 'edit' | 'fork') => void; revisionDisabled: boolean; onShowDiff: (value: { id: string; path: string; diff: EditDiff }) => void; selectedDiffId?: string }) {
   const ref = useRef<HTMLDivElement>(null), stick = useRef(true)
   const [atBottom, setAtBottom] = useState(true)
   useEffect(() => { if (stick.current && ref.current) ref.current.scrollTop = ref.current.scrollHeight }, [messages, runtime])
@@ -59,8 +59,10 @@ export function Transcript({ messages, runtime, onRevise, revisionDisabled }: { 
           const output = activity?.output || result?.blocks.filter(b => b.type === 'text').map(b => b.text).join('\n') || ''
           const failed = activity?.status === 'error' || result?.isError
           const args = activity?.args || block.arguments || '', preview = toolPreview(args)
+          const diff = !failed ? result?.editDiff || activity?.editDiff : undefined
+          const isEdit = block.name === 'edit'
           return <details className={`tool-card ${failed ? 'failed' : ''}`} key={block.id || index}><summary>
-            {activity?.status === 'running' ? <LoaderCircle className="spin" size={13} /> : <Terminal size={13} />}<span>{block.name || '工具调用'}</span><code className="tool-preview" title={preview}>{preview}</code><span className="tool-status">{failed ? '执行出错' : activity?.status === 'running' ? '执行中' : result || activity ? '已完成' : '准备执行'}</span><ChevronDown size={12} />
+            {activity?.status === 'running' ? <LoaderCircle className="spin" size={13} /> : <Terminal size={13} />}<span>{block.name || '工具调用'}</span><code className="tool-preview" title={preview}>{preview}</code>{isEdit && <button className={`tool-diff-button ${selectedDiffId === block.id ? 'active' : ''}`} aria-pressed={selectedDiffId === block.id} disabled={!diff} title={diff ? '查看这次编辑的差异' : failed ? '编辑失败，没有已应用的差异' : result || activity?.status === 'done' ? '这条记录没有保存差异' : '编辑完成后可查看差异'} onClick={event => { event.preventDefault(); event.stopPropagation(); if (diff) { let path = preview; try { const value = JSON.parse(args); path = clean(String(value.path || value.file_path || preview)) } catch {} onShowDiff({ id: block.id || `${message.id}-${index}`, path, diff }) } }}><FileCode2 size={12} />查看差异</button>}<span className="tool-status">{failed ? '执行出错' : activity?.status === 'running' ? '执行中' : result || activity ? '已完成' : '准备执行'}</span><ChevronDown size={12} />
           </summary><div className="tool-content"><div className="tool-label">输入</div><pre>{clean(args)}</pre>{output && <><div className="tool-label">输出</div><pre>{clean(output)}</pre></>}</div></details>
         }
         return <div className={isUser ? 'user-text' : 'markdown'} key={index}>{isUser ? block.text : <RichText text={clean(block.text || '')} />}</div>
