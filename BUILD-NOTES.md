@@ -1,3 +1,9 @@
+# Pi Desk 0.2.19 构建记录
+
+- 依据 Electron 44.3.0 的 `net-fetch.ts` 和 `net-client-request.ts` 源码确认：fetch 的 manual redirect 未接续原生 redirect 事件，跳转触发取消。改用 `net.request` 同步调用 `followRedirect`，每次继续前检查地址和跳转上限。
+- 保留临时网络会话、系统代理、无凭据请求、取消、超时、流式保存和安装校验；错误提示只输出自有文案、HTTP 状态或受限错误码，不输出远端 URL、响应内容或私有路径。
+- 已通过 TypeScript 类型检查与 Electron/Vite 生产构建；待完成双架构打包和发布校验；遵循用户约定，不执行下载复现、界面交互、手工功能或验收测试。
+
 # Pi Desk 0.2.18 构建记录
 
 ```text
