@@ -1,8 +1,14 @@
 # Pi Desk 0.2.19 构建记录
 
+```text
+2b28af350a312a12aff39049637a36f75a6eb200210754057dff33b88dbd4dd0  Pi-Desk-0.2.19-arm64.dmg
+281a18b4d66407662e25e0d894a6853386af3da01292702ca6c7ff47886b3cf1  Pi-Desk-0.2.19-x64.dmg
+```
+
 - 依据 Electron 44.3.0 的 `net-fetch.ts` 和 `net-client-request.ts` 源码确认：fetch 的 manual redirect 未接续原生 redirect 事件，跳转触发取消。改用 `net.request` 同步调用 `followRedirect`，每次继续前检查地址和跳转上限。
 - 保留临时网络会话、系统代理、无凭据请求、取消、超时、流式保存和安装校验；错误提示只输出自有文案、HTTP 状态或受限错误码，不输出远端 URL、响应内容或私有路径。
-- 已通过 TypeScript 类型检查与 Electron/Vite 生产构建；待完成双架构打包和发布校验；遵循用户约定，不执行下载复现、界面交互、手工功能或验收测试。
+- 已通过 TypeScript 类型检查与 Electron/Vite 生产构建；已发布 `v0.2.19`，源码提交 `c7fa5e8`。双架构安装包通过签名、架构、镜像和打包一致性校验，GitHub 资产摘要与本地一致。遵循用户约定，未执行下载复现、界面交互、手工功能或验收测试。
+- 已通过本地 arm64 安装包从 0.2.17 升级至 0.2.19，正常退出后替换并重新打开，确认安装版本；旧版临时副本和发布构建的解包应用已删除。
 
 # Pi Desk 0.2.18 构建记录
 
