@@ -2,7 +2,7 @@ import { createReadStream, promises as fs } from 'node:fs'
 import { createInterface } from 'node:readline'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
-import type { ModelCatalog, ModelInfo, Preferences, SessionInfo, ProjectTrust } from '../shared/contracts'
+import type { DefaultModel, ModelCatalog, ModelInfo, Preferences, SessionInfo, ProjectTrust } from '../shared/contracts'
 import { displayMessage, activeBranch, compareModels, modelInfo } from './transcript'
 
 export const expand = (p: string) => p.startsWith('~/') ? join(homedir(), p.slice(2)) : resolve(p)
@@ -94,6 +94,16 @@ export class Storage {
       } catch {} finally { await file.close() }
     }))
     return { models: [...models.values()].sort(compareModels), source: 'recent' }
+  }
+  async defaultModel(): Promise<DefaultModel | undefined> {
+    const settings = await jsonFile(join(await this.root(), 'settings.json'))
+    const provider = settings.defaultProvider, id = settings.defaultModel
+    if (typeof provider !== 'string' || typeof id !== 'string' || !provider || !id || provider.length > 300 || id.length > 1000 || /[\x00-\x1f]/.test(provider + id)) return undefined
+    // A display hint only. Pi still resolves availability and trusted project overrides.
+    const cached = await jsonFile(join(this.directory, 'model-catalog.json'))
+    const model = cached.scope === await this.catalogScope() && Array.isArray(cached.models)
+      ? cached.models.map(modelInfo).find((m: ModelInfo | undefined) => m?.provider === provider && m.id === id) : undefined
+    return { provider, id, name: model?.name || id }
   }
   async setTitle(path: string, title: string, source: 'auto' | 'manual') {
     if (source === 'auto' && this.titles[path]) return

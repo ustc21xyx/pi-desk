@@ -54,6 +54,7 @@ export default function App() {
   const cwd = (runtime?.settingsOnly ? '' : runtime?.cwd) || selectedHistory?.cwd || project
   const draftKey = active.kind === 'runtime' ? active.id : active.kind === 'history' ? active.path : `new:${project}`
   const visibleDiff = selectedDiff?.scope === draftKey ? selectedDiff : undefined
+  const displayedModel = active.kind === 'new' ? draftModel || runtime?.model || boot?.defaultModel : runtime?.model
   const panelVisible = Boolean(visibleDiff || (panel && cwd))
   const sidebarWidths = useSidebarWidths(sidebar, panelVisible)
   const draft = drafts[draftKey] || '', images = attachments[draftKey] || []
@@ -89,6 +90,15 @@ export default function App() {
   useEffect(() => { latest.current = runtimes }, [runtimes])
   useEffect(() => { const timer = setTimeout(() => { try { localStorage.setItem('pi-desk-drafts', JSON.stringify(drafts)) } catch {} }, 350); return () => clearTimeout(timer) }, [drafts])
   useEffect(() => { pendingSettings.current = {}; setDraftModel(undefined); setCatalog({ models: [], source: 'recent' }); setSettingsId('') }, [boot?.preferences.agentDir, boot?.preferences.executable, boot?.preferences.node])
+  useEffect(() => {
+    if (active.kind !== 'new' || !boot) return
+    let current = true
+    const refresh = () => { void window.desk.defaultModel().then(defaultModel => {
+      if (current) setBoot(previous => previous ? { ...previous, defaultModel } : previous)
+    }).catch(() => {}) }
+    refresh(); window.addEventListener('focus', refresh)
+    return () => { current = false; window.removeEventListener('focus', refresh) }
+  }, [active, !!boot, boot?.preferences.agentDir, boot?.preferences.executable, boot?.preferences.node])
   useEffect(() => { document.documentElement.dataset.theme = preferences?.theme || 'light' }, [preferences?.theme])
   useEffect(() => {
     const el = textRef.current
@@ -352,7 +362,7 @@ export default function App() {
           <textarea ref={textRef} value={draft} rows={2} placeholder={isHistory ? '继续这个会话…' : cwd ? '描述你的想法，或输入 / 查看命令…' : '描述你的想法，发送时选择项目…'} aria-label="发送给 Pi 的消息" onChange={e => updateDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); void send() } }} />
           {draft === '/' && commands.length > 0 && <div className="slash-menu">{commands.slice(0, 8).map(c => <button key={c.name} onClick={() => updateDraft(`/${c.name} `)}><strong>/{c.name}</strong><span>{c.description}</span></button>)}</div>}
           <div className="composer-toolbar"><div className="composer-controls"><button className="icon-button" title="添加图片" aria-label="添加图片" onClick={() => void addImages()} disabled={images.length >= 4}><ImagePlus size={18} /></button>{active.kind === 'new' && <div className="project-picker"><Folder size={14} /><select value={project} disabled={sending || savingSettings || !!loadingSettings} onChange={e => { if (e.target.value === '__add__') void chooseProject(); else setProject(e.target.value) }} aria-label="项目"><option value="">选择项目</option>{projects.map(p => <option key={p} value={p}>{nameOf(p)}</option>)}<option value="__add__">打开文件夹…</option></select></div>}
-            <button className="model-button" disabled={!boot || controlsLocked} onClick={() => void openAgentSettings('models')} title={active.kind === 'new' && draftModel ? `${draftModel.provider}/${draftModel.id}` : runtime?.model ? `${runtime.model.provider}/${runtime.model.id}` : '选择本机 Pi 模型，可在发送前设置'}>{loadingSettings === 'models' || (runtime?.phase === 'starting' && !runtime.settingsOnly && !runtime.prepared) ? <><LoaderCircle className="spin" size={12} />正在加载模型…</> : (active.kind === 'new' ? draftModel?.name : undefined) || runtime?.model?.name || '选择模型'}<ChevronDown size={12} /></button>
+            <button className="model-button" disabled={!boot || controlsLocked} onClick={() => void openAgentSettings('models')} title={displayedModel ? `${displayedModel.provider}/${displayedModel.id}${active.kind === 'new' && !draftModel && !runtime?.model ? ' · Pi 默认配置，连接后确认' : ''}` : '由本机 Pi 选择默认模型；点击可切换'}>{loadingSettings === 'models' || (runtime?.phase === 'starting' && !runtime.settingsOnly && !runtime.prepared) ? <><LoaderCircle className="spin" size={12} />正在加载模型…</> : displayedModel?.name || (active.kind === 'new' ? boot ? 'Pi 默认模型' : '读取默认模型…' : '选择模型')}<ChevronDown size={12} /></button>
             <button className="thinking-button" aria-label="设置思考强度" disabled={!boot || controlsLocked} onClick={() => void openAgentSettings('thinking')} title={gatewayStatus || '设置当前模型的思考强度'}>{loadingSettings === 'thinking' ? <><LoaderCircle className="spin" size={12} />正在加载…</> : thinkingLabel}<ChevronDown size={12} /></button>
             {fastAvailable && !runtime?.settingsOnly && <button className="icon-button" disabled={busy || sending} title="切换 Fast（由本机扩展决定支持情况）" aria-label="切换 Fast" onClick={() => void perform({ type: 'prompt', message: '/fast' })}><Zap size={16} /></button>}
             {commands.length > 0 && !runtime?.settingsOnly && <button className="command-button" title="命令与 Skill" onClick={() => { setModelQuery(''); setModal('commands') }}>/</button>}
@@ -368,7 +378,7 @@ export default function App() {
     {modal === 'catalog' && <Modal title="选择模型" wide onClose={() => setModal(null)}>
       {error && <div className="picker-error" role="alert">{error}</div>}
       <div className="modal-search"><Search size={17} /><input autoFocus placeholder="搜索模型或服务商…" value={modelQuery} onChange={e => setModelQuery(e.target.value)} /></div>
-      <div className="picker-list">{matchedCatalog.map(m => <button key={`${m.provider}/${m.id}`} onClick={() => { pendingSettings.current = { model: { provider: m.provider, modelId: m.id } }; setDraftModel(m); setModal(null) }}><span><strong>{m.id}</strong><small>{m.provider}{m.name !== m.id ? ` · ${m.name}` : ''}</small></span><span className="model-meta">{m.contextWindow ? `${Math.round(m.contextWindow / 1000)}k` : ''}{draftModel?.id === m.id && draftModel.provider === m.provider && <Check size={16} />}</span></button>)}
+      <div className="picker-list">{matchedCatalog.map(m => <button key={`${m.provider}/${m.id}`} onClick={() => { pendingSettings.current = { model: { provider: m.provider, modelId: m.id } }; setDraftModel(m); setModal(null) }}><span><strong>{m.id}</strong><small>{m.provider}{m.name !== m.id ? ` · ${m.name}` : ''}</small></span><span className="model-meta">{m.contextWindow ? `${Math.round(m.contextWindow / 1000)}k` : ''}{displayedModel?.id === m.id && displayedModel.provider === m.provider && <Check size={16} />}</span></button>)}
         {!matchedCatalog.length && <p className="picker-empty">{catalogModels.length ? '没有匹配的模型' : catalogReading ? '正在读取本机模型记录…' : '还没有可用的模型缓存，正在等待 Pi 返回列表。你可以关闭此窗口，稍后再选。'}</p>}
       </div>
       <footer className="picker-footer">{catalogLive ? '本机 Pi 当前列表' : catalog.source === 'cache' ? '上次加载的模型 · 发送前会确认可用性' : '最近用过的模型 · 发送前会确认可用性'} · 模型 ID A–Z{!catalogLive && !['error', 'closed'].includes(runtime?.phase || '') && (project && preparation.needsTrust ? ' · 选择项目配置后加载完整列表' : ' · 完整列表后台加载中')}{runtime && ['error', 'closed'].includes(runtime.phase) && <button className="text-button" onClick={() => void openAgentSettings('models')}>重试加载</button>}</footer>

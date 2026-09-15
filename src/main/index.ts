@@ -168,6 +168,7 @@ function registerIPC() {
     return revertReview(root, text(snapshotId, 100), staged, fileId === undefined ? undefined : text(fileId, 100), hunkId === undefined ? undefined : text(hunkId, 100))
   })
   handle('modelCatalog', () => store.modelCatalog())
+  handle('defaultModel', () => store.defaultModel())
   handle('prepareSettings', async () => {
     if (preparingSettings) return preparingSettings
     const existing = live().find(r => r.snapshot.settingsOnly)
@@ -190,7 +191,7 @@ function registerIPC() {
     })().finally(() => { preparingSettings = undefined })
     return preparingSettings
   })
-  handle('bootstrap', async () => ({ version: app.getVersion(), preferences: store.preferences, namingStatus: naming.status, installations: await discover(store.preferences), ...await store.index(), runtimes: [...runtimes.values()].map(r => r.snapshot) }))
+  handle('bootstrap', async () => ({ version: app.getVersion(), defaultModel: await store.defaultModel(), preferences: store.preferences, namingStatus: naming.status, installations: await discover(store.preferences), ...await store.index(), runtimes: [...runtimes.values()].map(r => r.snapshot) }))
   handle('selectPath', async kind => {
     if (!['project', 'executable', 'node', 'agentDir', 'sessionDir', 'session'].includes(kind)) throw new Error('无效路径类型。')
     const directory = ['project', 'agentDir', 'sessionDir'].includes(kind)

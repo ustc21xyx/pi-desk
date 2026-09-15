@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { DeskAPI } from '../shared/contracts'
 const invoke = (name: string, ...args: unknown[]) => ipcRenderer.invoke(`desk:${name}`, ...args)
 const api: DeskAPI = {
+  defaultModel: () => invoke('defaultModel'),
   updateState: () => invoke('updateState'), checkUpdate: () => invoke('checkUpdate'),
   downloadUpdate: () => invoke('downloadUpdate'), installUpdate: () => invoke('installUpdate'),
   cancelUpdateDownload: () => invoke('cancelUpdateDownload'),
